@@ -4,6 +4,11 @@
   "name": "prek",
   // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
   "image": "mcr.microsoft.com/devcontainers/rust:1-1-bookworm",
+  "hostRequirements": {
+   "cpus": 4,
+   "memory": "16gb",
+   "storage": "32gb"
+  },
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
