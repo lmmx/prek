@@ -335,6 +335,20 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             )
             .await
         }
+        Command::TryRepo(args) => {
+            show_settings!(args);
+
+            cli::try_repo(
+                cli.globals.config,
+                args.repo,
+                args.rev,
+                args.run_args,
+                cli.globals.refresh,
+                cli.globals.verbose > 0,
+                printer,
+            )
+            .await
+        }
         #[cfg(feature = "self-update")]
         Command::Self_(SelfNamespace {
             command:
