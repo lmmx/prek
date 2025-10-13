@@ -180,6 +180,32 @@ cargo install --locked --git https://github.com/j178/prek
 </details>
 
 <details>
+<summary>npmjs</summary>
+
+prek is published as a Node.js package, you can install it using `npm`, `pnpm`, or `npx`:
+
+<!-- npmjs-install:start -->
+```bash
+# Using npm
+npm add -D @j178/prek
+
+# Using pnpm
+pnpm add -D @j178/prek
+
+# Using npx
+npx @j178/prek --version
+
+# or install globally
+npm install -g @j178/prek
+
+# then use `prek` command
+prek --version
+```
+<!-- npmjs-install:end -->
+
+</details>
+
+<details>
 <summary>GitHub Releases</summary>
 
 <!-- pre-built-binaries:start -->
