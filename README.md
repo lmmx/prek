@@ -125,9 +125,9 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/j178/prek/releases
 <details>
 <summary>PyPI</summary>
 
+<!-- pypi-install:start -->
 prek is published as Python binary wheel to PyPI, you can install it using `pip`, `uv` (recommended), or `pipx`:
 
-<!-- pypi-install:start -->
 ```bash
 # Using uv (recommended)
 uv tool install prek
@@ -182,9 +182,9 @@ cargo install --locked --git https://github.com/j178/prek
 <details>
 <summary>npmjs</summary>
 
+<!-- npmjs-install:start -->
 prek is published as a Node.js package, you can install it using `npm`, `pnpm`, or `npx`:
 
-<!-- npmjs-install:start -->
 ```bash
 # Using npm
 npm add -D @j178/prek
@@ -202,6 +202,38 @@ npm install -g @j178/prek
 prek --version
 ```
 <!-- npmjs-install:end -->
+
+</details>
+
+<details>
+<summary>Nix</summary>
+
+<!-- nix-install:start -->
+prek is [available in Nix as `prek`](https://search.nixos.org/packages?channel=unstable&show=prek&query=prek).
+
+```shell
+# Choose what's appropriate for your use case.
+# One-off in a shell:
+nix-shell -p prek
+# NixOS or non-NixOS without flakes:
+nix-env -iA nixos.prek
+# Non-NixOS with flakes:
+nix profile install nixpkgs#prek
+```
+<!-- nix-install:end -->
+
+</details>
+
+<details>
+<summary>Conda</summary>
+
+<!-- conda-forge-install:start -->
+prek is [available as `prek` via conda-forge](https://anaconda.org/conda-forge/prek).
+
+```shell
+conda install conda-forge::prek
+```
+<!-- conda-forge-install:end -->
 
 </details>
 
