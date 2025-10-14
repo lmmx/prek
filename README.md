@@ -167,6 +167,19 @@ mise use prek
 </details>
 
 <details>
+<summary>Cargo binstall</summary>
+
+<!-- cargo-binstall:start -->
+Install pre-compiled binaries from GitHub using Cargo binstall (Rust 1.89+ is required):
+
+```bash
+cargo binstall prek --git https://github.com/j178/prek
+```
+<!-- cargo-binstall:end -->
+
+</details>
+
+<details>
 <summary>Cargo</summary>
 
 <!-- cargo-install:start -->

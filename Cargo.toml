@@ -109,6 +109,18 @@ pretty_assertions = { version = "1.4.1" }
 regex = { version = "1.11.0" }
 tempfile = { version = "3.13.0" }
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-fmt = "zip"
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.zip"
+
 [package.metadata.cargo-shear]
 ignored = ["liblzma"]
 

@@ -72,6 +72,14 @@ The standalone installer automatically downloads and installs the correct binary
   end="<!-- conda-forge-install:end -->"
 %}
 
+### Install from Pre-Built Binaries
+
+{%
+  include-markdown "../README.md"
+  start="<!-- cargo-binstall:start -->"
+  end="<!-- cargo-binstall:end -->"
+%}
+
 ## Build from Source
 
 {%
