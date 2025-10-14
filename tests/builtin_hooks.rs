@@ -7,6 +7,15 @@ use crate::common::{TestContext, cmd_snapshot};
 
 mod common;
 
+fn is_case_sensitive_filesystem(context: &TestContext) -> Result<bool> {
+    let test_lower = context.work_dir().child("case_test_file.txt");
+    test_lower.write_str("test")?;
+    let test_upper = context.work_dir().child("CASE_TEST_FILE.txt");
+    let is_sensitive = !test_upper.exists();
+    fs_err::remove_file(test_lower.path())?;
+    Ok(is_sensitive)
+}
+
 #[test]
 fn end_of_file_fixer_hook() -> Result<()> {
     let context = TestContext::new();
@@ -1271,6 +1280,11 @@ fn check_case_conflict_hook() -> Result<()> {
     context.init_project();
     context.configure_git_author();
 
+    if !is_case_sensitive_filesystem(&context)? {
+        // Skipping test on case-insensitive filesystem
+        return Ok(());
+    }
+
     // Create initial files and commit
     let cwd = context.work_dir();
     cwd.child("README.md").write_str("Initial commit")?;
@@ -1330,6 +1344,11 @@ fn check_case_conflict_directory() -> Result<()> {
     context.init_project();
     context.configure_git_author();
 
+    if !is_case_sensitive_filesystem(&context)? {
+        // Skipping test on case-insensitive filesystem
+        return Ok(());
+    }
+
     // Create directory with file
     let cwd = context.work_dir();
     cwd.child("src/utils/helper.py").write_str("helper")?;
@@ -1369,6 +1388,11 @@ fn check_case_conflict_among_new_files() -> Result<()> {
     let context = TestContext::new();
     context.init_project();
     context.configure_git_author();
+
+    if !is_case_sensitive_filesystem(&context)? {
+        // Skipping test on case-insensitive filesystem
+        return Ok(());
+    }
 
     let cwd = context.work_dir();
     cwd.child("README.md").write_str("Initial")?;
