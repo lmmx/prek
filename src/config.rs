@@ -9,6 +9,7 @@ use constants::{ALT_CONFIG_FILE, CONFIG_FILE};
 use fancy_regex::{self as regex, Regex};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_yaml::Value;
 
 use crate::fs::Simplified;
 use crate::identify;
@@ -723,6 +724,8 @@ pub enum Error {
     Yaml(String, #[source] serde_yaml::Error),
 }
 
+static EXPECTED_UNUSED: &[&str] = &["minimum_pre_commit_version"];
+
 /// Read the configuration file from the given path.
 pub fn read_config(path: &Path) -> Result<Config, Error> {
     let content = match fs_err::read_to_string(path) {
@@ -733,13 +736,16 @@ pub fn read_config(path: &Path) -> Result<Config, Error> {
         Err(e) => return Err(e.into()),
     };
 
-    let expected_unused = ["minimum_pre_commit_version"];
+    let mut yaml: Value = serde_yaml::from_str(&content)
+        .map_err(|e| Error::Yaml(path.user_display().to_string(), e))?;
 
-    let deserializer = serde_yaml::Deserializer::from_str(&content);
+    yaml.apply_merge()
+        .map_err(|e| Error::Yaml(path.user_display().to_string(), e))?;
+
     let mut unused = Vec::new();
-    let config: Config = serde_ignored::deserialize(deserializer, |path| {
+    let config: Config = serde_ignored::deserialize(yaml, |path| {
         let key = path.to_string();
-        if !expected_unused.contains(&key.as_str()) {
+        if !EXPECTED_UNUSED.contains(&key.as_str()) {
             unused.push(key);
         }
     })
@@ -833,6 +839,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write as _;
 
     #[test]
     fn parse_repos() {
@@ -1578,5 +1585,113 @@ mod tests {
                 .to_string()
                 .contains("Type tag \"not-a-real-tag\" is not recognized")
         );
+    }
+
+    #[test]
+    fn read_config_with_merge_keys() -> Result<()> {
+        let yaml = indoc::indoc! {r#"
+            repos:
+              - repo: local
+                hooks:
+                  - id: mypy-local
+                    name: Local mypy
+                    entry: python tools/pre_commit/mypy.py 0 "local"
+                    <<: &mypy_common
+                      language: python
+                      types_or: [python, pyi]
+                  - id: mypy-3.10
+                    name: Mypy 3.10
+                    entry: python tools/pre_commit/mypy.py 1 "3.10"
+                    <<: *mypy_common
+        "#};
+
+        let mut file = tempfile::NamedTempFile::new()?;
+        file.write_all(yaml.as_bytes())?;
+
+        let config = read_config(file.path())?;
+        insta::assert_debug_snapshot!(config, @r#"
+        Config {
+            repos: [
+                Local(
+                    LocalRepo {
+                        hooks: [
+                            ManifestHook {
+                                id: "mypy-local",
+                                name: "Local mypy",
+                                entry: "python tools/pre_commit/mypy.py 0 \"local\"",
+                                language: Python,
+                                options: HookOptions {
+                                    alias: None,
+                                    files: None,
+                                    exclude: None,
+                                    types: None,
+                                    types_or: Some(
+                                        [
+                                            "python",
+                                            "pyi",
+                                        ],
+                                    ),
+                                    exclude_types: None,
+                                    additional_dependencies: None,
+                                    args: None,
+                                    always_run: None,
+                                    fail_fast: None,
+                                    pass_filenames: None,
+                                    description: None,
+                                    language_version: None,
+                                    log_file: None,
+                                    require_serial: None,
+                                    stages: None,
+                                    verbose: None,
+                                    minimum_prek_version: None,
+                                },
+                            },
+                            ManifestHook {
+                                id: "mypy-3.10",
+                                name: "Mypy 3.10",
+                                entry: "python tools/pre_commit/mypy.py 1 \"3.10\"",
+                                language: Python,
+                                options: HookOptions {
+                                    alias: None,
+                                    files: None,
+                                    exclude: None,
+                                    types: None,
+                                    types_or: Some(
+                                        [
+                                            "python",
+                                            "pyi",
+                                        ],
+                                    ),
+                                    exclude_types: None,
+                                    additional_dependencies: None,
+                                    args: None,
+                                    always_run: None,
+                                    fail_fast: None,
+                                    pass_filenames: None,
+                                    description: None,
+                                    language_version: None,
+                                    log_file: None,
+                                    require_serial: None,
+                                    stages: None,
+                                    verbose: None,
+                                    minimum_prek_version: None,
+                                },
+                            },
+                        ],
+                    },
+                ),
+            ],
+            default_install_hook_types: None,
+            default_language_version: None,
+            default_stages: None,
+            files: None,
+            exclude: None,
+            fail_fast: None,
+            minimum_prek_version: None,
+            ci: None,
+        }
+        "#);
+
+        Ok(())
     }
 }
