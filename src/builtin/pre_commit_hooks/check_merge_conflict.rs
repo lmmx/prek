@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
 
+use crate::git::get_git_dir;
 use crate::hook::Hook;
 use crate::run::CONCURRENCY;
 
@@ -31,7 +32,7 @@ pub(crate) async fn check_merge_conflict(
     let args = Args::try_parse_from(hook.entry.resolve(None)?.iter().chain(&hook.args))?;
 
     // Check if we're in a merge state or assuming merge
-    if !args.assume_in_merge && !is_in_merge(hook.work_dir()).await? {
+    if !args.assume_in_merge && !is_in_merge().await? {
         return Ok((0, Vec::new()));
     }
 
@@ -51,38 +52,20 @@ pub(crate) async fn check_merge_conflict(
     Ok((code, output))
 }
 
-async fn is_in_merge(work_dir: &Path) -> Result<bool> {
-    // Get the git directory
-    let git_dir_output = tokio::process::Command::new("git")
-        .arg("rev-parse")
-        .arg("--git-dir")
-        .current_dir(work_dir)
-        .output()
-        .await?;
-
-    if !git_dir_output.status.success() {
-        return Ok(false);
-    }
-
-    let git_dir = String::from_utf8_lossy(&git_dir_output.stdout)
-        .trim()
-        .to_string();
-    let git_dir_path = if Path::new(&git_dir).is_absolute() {
-        Path::new(&git_dir).to_path_buf()
-    } else {
-        work_dir.join(&git_dir)
-    };
+async fn is_in_merge() -> Result<bool> {
+    // Change directory temporarily or ensure we're in the right directory
+    let git_dir = get_git_dir().await?;
 
     // Check if MERGE_MSG exists
-    let merge_msg_exists = git_dir_path.join("MERGE_MSG").exists();
+    let merge_msg_exists = git_dir.join("MERGE_MSG").exists();
     if !merge_msg_exists {
         return Ok(false);
     }
 
     // Check if any of the merge state files exist
-    let merge_head_exists = git_dir_path.join("MERGE_HEAD").exists();
-    let rebase_apply_exists = git_dir_path.join("rebase-apply").exists();
-    let rebase_merge_exists = git_dir_path.join("rebase-merge").exists();
+    let merge_head_exists = git_dir.join("MERGE_HEAD").exists();
+    let rebase_apply_exists = git_dir.join("rebase-apply").exists();
+    let rebase_merge_exists = git_dir.join("rebase-merge").exists();
 
     Ok(merge_head_exists || rebase_apply_exists || rebase_merge_exists)
 }

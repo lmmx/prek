@@ -8,8 +8,8 @@ use crate::hook::Hook;
 
 mod check_added_large_files;
 mod check_json;
-mod check_symlinks;
 mod check_merge_conflict;
+mod check_symlinks;
 mod check_toml;
 mod check_yaml;
 mod detect_private_key;
