@@ -24,7 +24,7 @@ while also providing some additional long-requested features.
 > [!WARNING]
 > prek is not production-ready yet. Some subcommands and languages are not implemented. See the current gaps for drop-in parity: [TODO](https://prek.j178.dev/todo/).
 >
-> It's already being adopted by [some projects](#who-is-using-prek), please give it a try - we'd love your feedback!
+> But it's already being adopted by [some projects](#who-is-using-prek) like Airflow, so please give it a try - we'd love your feedback!
 
 <!-- features:start -->
 ## Features
