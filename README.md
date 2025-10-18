@@ -132,6 +132,9 @@ prek is published as Python binary wheel to PyPI, you can install it using `pip`
 # Using uv (recommended)
 uv tool install prek
 
+# Using uvx (install and run in one command)
+uvx prek
+
 # Using pip
 pip install prek
 
@@ -170,7 +173,7 @@ mise use prek
 <summary>Cargo binstall</summary>
 
 <!-- cargo-binstall:start -->
-Install pre-compiled binaries from GitHub using Cargo binstall (Rust 1.89+ is required):
+Install pre-compiled binaries from GitHub using [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
 
 ```bash
 cargo binstall prek --git https://github.com/j178/prek
