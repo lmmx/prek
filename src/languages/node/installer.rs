@@ -3,8 +3,10 @@ use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::string::ToString;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result};
+use constants::env_vars::EnvVars;
 use itertools::Itertools;
 use reqwest::Client;
 use target_lexicon::{Architecture, HOST, OperatingSystem};
@@ -30,6 +32,15 @@ impl Display for NodeResult {
         Ok(())
     }
 }
+
+/// Override the Node binary name for testing.
+static NODE_BINARY_NAME: LazyLock<String> = LazyLock::new(|| {
+    if let Ok(name) = EnvVars::var(EnvVars::PREK_INTERNAL__NODE_BINARY_NAME) {
+        name
+    } else {
+        "node".to_string()
+    }
+});
 
 impl NodeResult {
     pub(crate) fn from_executables(node: PathBuf, npm: PathBuf) -> Self {
@@ -97,7 +108,12 @@ impl NodeInstaller {
     }
 
     /// Install a version of Node.js.
-    pub(crate) async fn install(&self, store: &Store, request: &NodeRequest) -> Result<NodeResult> {
+    pub(crate) async fn install(
+        &self,
+        store: &Store,
+        request: &NodeRequest,
+        allows_download: bool,
+    ) -> Result<NodeResult> {
         fs_err::tokio::create_dir_all(&self.root).await?;
 
         let _lock = LockedFile::acquire(self.root.join(".lock"), "node").await?;
@@ -111,6 +127,10 @@ impl NodeInstaller {
         if let Some(node_result) = self.find_system_node(request).await? {
             trace!(%node_result, "Using system node");
             return Ok(node_result);
+        }
+
+        if !allows_download {
+            anyhow::bail!("No suitable system Node version found and downloads are disabled");
         }
 
         let resolved_version = self.resolve_version(request).await?;
@@ -222,7 +242,7 @@ impl NodeInstaller {
 
     /// Find a suitable system Node.js installation that matches the request.
     async fn find_system_node(&self, node_request: &NodeRequest) -> Result<Option<NodeResult>> {
-        let node_paths = match which::which_all("node") {
+        let node_paths = match which::which_all(&*NODE_BINARY_NAME) {
             Ok(paths) => paths,
             Err(e) => {
                 debug!("No node executables found in PATH: {}", e);
