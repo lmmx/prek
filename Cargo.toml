@@ -33,6 +33,7 @@ profiler = ["dep:pprof", "profiler-flamegraph"]
 profiler-flamegraph = ["pprof/flamegraph"]
 # Enable docker related tests in integration tests
 docker = []
+# Comment to test CI
 
 [dependencies]
 anstream = { version = "0.6.15" }
