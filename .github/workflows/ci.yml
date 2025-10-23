@@ -468,41 +468,529 @@ jobs:
             fetch-depth: 0
         - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
         - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
-
+  
         - name: "Install Rust toolchain"
           run: rustup component add llvm-tools-preview
-
+  
         - name: "Install hotpath"
           uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
           with:
             tool: hotpath
-
+  
         - name: "Install uv"
           uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
           with:
             version: ${{ env.UV_VERSION }}
-
+  
         - name: "Install Python"
           uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
           with:
             python-version: ${{ env.PYTHON_VERSION }}
+name: CI
 
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "README.md"
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions: {}
+
+env:
+  # UV_VERSION should not greater than MAX_UV_VERSION in `languages/python/uv`.
+  # Otherwise, tests jobs will install their own uv, and it will encounter concurrency issue.
+  UV_VERSION: '0.8.22'
+  NODE_VERSION: '20'
+  GO_VERSION: '1.24'
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  lint:
+    name: "lint"
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - name: "Install Rustfmt"
+        run: rustup component add rustfmt
+      - name: "rustfmt"
+        run: cargo fmt --all --check
+      - name: Run prek hooks
+        uses: j178/prek-action@91fd7d7cf70ae1dee9f4f44e7dfa5d1073fe6623 # v1.0.11
+        with:
+          extra-args: '--all-files --skip cargo-fmt --skip cargo-clippy'
+
+  cargo-clippy-linux:
+    name: "cargo clippy | ubuntu"
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+      - name: "Install Rust toolchain"
+        run: rustup component add clippy
+      - name: "Clippy"
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  cargo-clippy-windows:
+    timeout-minutes: 15
+    runs-on: windows-latest
+    name: "cargo clippy | windows"
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - name: Create Dev Drive
+        run: ${{ github.workspace }}/.github/workflows/setup-dev-drive.ps1
+
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+      - name: "Install Rust toolchain"
+        run: rustup component add clippy
+
+      - name: "Clippy"
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+  cargo-shear:
+    name: "cargo shear"
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - name: "Install cargo shear"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-shear
+      - run: cargo shear
+
+  bloat-check:
+    runs-on: ubuntu-latest
+    name: "cargo | bloat check"
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+      - uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-bloat
+
+      - name: Build base branch
+        id: bloat_base
+        if: github.event_name == 'pull_request'
+        run: |
+          # Build base branch
+          git checkout ${{ github.event.pull_request.base.sha }}
+          cargo bloat --release | tee bloat_base.txt >&1 || true
+          git checkout -
+
+          {
+            echo 'output<<EOF'
+            cat bloat_base.txt
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Build PR branch
+        id: bloat_pr
+        run: |
+          # Build PR branch
+          cargo bloat --release | tee bloat_pr.txt >&1 || true
+
+          {
+            echo 'output<<EOF'
+            cat bloat_pr.txt
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Compare bloat results
+        id: compare
+        if: github.event_name == 'pull_request'
+        shell: python
+        run: |
+          import re
+          from pathlib import Path
+
+          def parse_size(text):
+              match = re.search(r'\.text section size.*?([\d.]+)\s*([KMGT]i?B)', text)
+              if not match:
+                  raise ValueError("Could not find .text section size")
+              value, unit = float(match.group(1)), match.group(2)
+              multipliers = {'B': 1, 'KiB': 1024, 'MiB': 1024**2, 'GiB': 1024**3, 'TiB': 1024**4}
+              size = value * multipliers.get(unit, 1)
+              return size, f"{value} {unit}"
+
+          pr_text = Path('bloat_pr.txt').read_text()
+          base_text = Path('bloat_base.txt').read_text()
+
+          pr_bytes, pr_size = parse_size(pr_text)
+          base_bytes, base_size = parse_size(base_text)
+
+          pct_change = ((pr_bytes - base_bytes) / base_bytes) * 100
+          pct_display = f"{pct_change:+.2f}%"
+          comparison = f"""\
+          ### 📦 Cargo Bloat Comparison
+          **Binary size change:** {pct_display} ({base_size} → {pr_size})
+
+          <details>
+            <summary>Expand for cargo-bloat output</summary>
+
+          #### PR Branch Results
+          ```
+          {pr_text}
+          ```
+
+          #### Base Branch Results
+          ```
+          {base_text}
+          ```
+          </details>
+          """
+
+          Path("comparison.txt").write_text(comparison)
+
+      - name: Save pr-number
+        run: |
+          echo ${{ github.event.number }} > pr-number
+      - name: Upload pr-number
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pr-number
+          path: pr-number
+
+      - name: Upload bloat results
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bloat-check-results
+          path: comparison.txt
+
+      - name: Display results (PR)
+        if: github.event_name == 'pull_request'
+        run: cat comparison.txt >> $GITHUB_STEP_SUMMARY
+
+      - name: Display results (Push)
+        if: github.event_name == 'push'
+        run: |
+          echo "### 📦 Cargo Bloat Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "$PR_OUTPUT" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        env:
+          PR_OUTPUT: ${{ steps.bloat_pr.outputs.output }}
+
+  cargo-test-without-uv:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    name: "cargo test | without uv"
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+      - name: "Install Rust toolchain"
+        run: rustup component add llvm-tools-preview
+
+      - name: "Install cargo nextest"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-nextest
+
+      - name: "Install cargo-llvm-cov"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-llvm-cov
+
+      - name: "Cargo test without uv"
+        run: |
+          echo "::group::Test install uv with auto select"
+          cargo llvm-cov nextest \
+          --no-report \
+          -E 'binary_id(prek::run) and test(run_basic)'
+          echo "::endgroup::"
+
+          for source in github pypi aliyun pip invalid; do
+            echo "::group::Test install uv from $source"
+            export PREK_UV_SOURCE=$source
+            cargo llvm-cov nextest \
+              --no-report \
+              -E 'binary_id(prek::run) and test(run_basic)'
+            echo "::endgroup::"
+          done
+
+          cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: "Upload coverage reports to Codecov"
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+
+  cargo-test-linux:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    name: "cargo test | ubuntu"
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+      - name: "Install Rust toolchain"
+        run: rustup component add llvm-tools-preview
+
+      - name: "Install cargo nextest"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-nextest
+
+      - name: "Install cargo-llvm-cov"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-llvm-cov
+
+      - name: "Install uv"
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: "Install Python"
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: "Install Node.js"
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          # A dummy dependency path to enable caching of go modules.
+          cache-dependency-path: LICENSE
+
+      - name: "Install Go"
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # A dummy dependency path to enable caching of go modules.
+          cache-dependency-path: LICENSE
+
+      - name: "Cargo test"
+        run: |
+          cargo llvm-cov nextest \
+            --no-report \
+            --workspace \
+            --status-level skip \
+            --failure-output immediate \
+            --no-fail-fast \
+            -j 8 \
+            --final-status-level slow
+
+          cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: "Upload coverage reports to Codecov"
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+
+  cargo-test-macos:
+    runs-on: macos-latest
+    name: "cargo test | macos"
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+      - name: "Install Rust toolchain"
+        run: rustup show
+
+      - name: "Install cargo nextest"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-nextest
+
+      - name: "Install uv"
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: "Install Python"
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: "Install Node.js"
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          # A dummy dependency path to enable caching of go modules.
+          cache-dependency-path: LICENSE
+
+      - name: "Install Go"
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # A dummy dependency path to enable caching of go modules.
+          cache-dependency-path: LICENSE
+
+      - name: "Cargo test"
+        run: |
+          cargo nextest show-config test-groups
+          cargo nextest run \
+            --workspace \
+            --status-level skip \
+            --failure-output immediate \
+            --no-fail-fast \
+            -j 8 \
+            --final-status-level slow
+
+  cargo-test-windows:
+    runs-on: windows-latest
+    name: "cargo test | windows"
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          persist-credentials: false
+      - name: Create Dev Drive
+        run: ${{ github.workspace }}/.github/workflows/setup-dev-drive.ps1
+
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+      - name: "Install Rust toolchain"
+        run: rustup component add llvm-tools-preview
+
+      - name: "Install cargo nextest"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-nextest
+
+      - name: "Install cargo-llvm-cov"
+        uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+        with:
+          tool: cargo-llvm-cov
+
+      - name: "Install uv"
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          cache-local-path: ${{ env.DEV_DRIVE }}/uv-cache
+
+      - name: "Install Python"
+        uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: "Install Node.js"
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          # A dummy dependency path to enable caching of go modules.
+          cache-dependency-path: LICENSE
+
+      - name: "Install Go"
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # A dummy dependency path to enable caching of go modules.
+          cache-dependency-path: LICENSE
+
+      - name: "Find node and npm versions"
+        run: |
+          Get-Command node -All
+          Get-Command npm -All
+        shell: pwsh
+
+      - name: "Cargo test"
+        run: |
+          cargo llvm-cov nextest \
+            --no-report \
+            --workspace \
+            --status-level skip \
+            --failure-output immediate \
+            --no-fail-fast \
+            -j 8 \
+            --final-status-level slow
+
+          cargo llvm-cov report --lcov --output-path lcov.info
+        shell: bash
+
+      - name: "Upload coverage reports to Codecov"
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5.5.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+
+  hotpath-profile:
+      runs-on: ubuntu-latest
+      name: "cargo | hotpath profiling"
+      timeout-minutes: 15
+      steps:
+        - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+          with:
+            persist-credentials: false
+            fetch-depth: 0
+        - uses: rui314/setup-mold@725a8794d15fc7563f59595bd9556495c0564878 # v1
+        - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+  
+        - name: "Install Rust toolchain"
+          run: rustup component add llvm-tools-preview
+  
+        - name: "Install hotpath"
+          uses: taiki-e/install-action@5ab30948b991e8d6aa5a6c1e33c6aea130c6de65 # v2.62.12
+          with:
+            tool: hotpath
+  
+        - name: "Install uv"
+          uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4 # v6.7.0
+          with:
+            version: ${{ env.UV_VERSION }}
+  
+        - name: "Install Python"
+          uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+          with:
+            python-version: ${{ env.PYTHON_VERSION }}
+  
         - name: "Install Node.js"
           uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
           with:
             node-version: ${{ env.NODE_VERSION }}
             cache: npm
             cache-dependency-path: LICENSE
-
+  
         - name: "Install Go"
           uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
           with:
             go-version: ${{ env.GO_VERSION }}
             cache-dependency-path: LICENSE
-
+  
         - name: Build release binary
           run: cargo build --release --locked
-
+  
         - name: Profile base branch
           id: profile_base
           if: github.event_name == 'pull_request'
@@ -510,32 +998,32 @@ jobs:
             # Build and profile base branch
             git checkout ${{ github.event.pull_request.base.sha }}
             cargo build --release --locked
-
+  
             # Run hotpath profiling on prek itself
             hotpath --output-format text -- target/release/prek run --all-files --verbose \
               > hotpath_base.txt 2>&1 || true
-
+  
             git checkout -
-
+  
             {
               echo 'output<<EOF'
               cat hotpath_base.txt
               echo 'EOF'
             } >> $GITHUB_OUTPUT
-
+  
         - name: Profile PR branch
           id: profile_pr
           run: |
             # Profile PR branch
             hotpath --output-format text -- target/release/prek run --all-files --verbose \
               > hotpath_pr.txt 2>&1 || true
-
+  
             {
               echo 'output<<EOF'
               cat hotpath_pr.txt
               echo 'EOF'
             } >> $GITHUB_OUTPUT
-
+  
         - name: Compare profiling results
           id: compare
           if: github.event_name == 'pull_request'
@@ -543,11 +1031,11 @@ jobs:
           run: |
             import re
             from pathlib import Path
-
+  
             def parse_hotpath_output(text):
                 """Extract key metrics from hotpath output"""
                 metrics = {}
-
+  
                 # Extract total time
                 time_match = re.search(r'Total time:\s*([\d.]+)\s*(\w+)', text)
                 if time_match:
@@ -556,7 +1044,7 @@ jobs:
                     multipliers = {'s': 1000, 'ms': 1, 'us': 0.001, 'ns': 0.000001}
                     metrics['time_ms'] = value * multipliers.get(unit, 1)
                     metrics['time_display'] = f"{value}{unit}"
-
+  
                 # Extract allocation metrics
                 alloc_match = re.search(r'Total allocations:\s*([\d.]+)\s*(\w+)', text)
                 if alloc_match:
@@ -564,47 +1052,47 @@ jobs:
                     multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
                     metrics['alloc_bytes'] = value * multipliers.get(unit, 1)
                     metrics['alloc_display'] = f"{value}{unit}"
-
+  
                 return metrics
-
+  
             pr_text = Path('hotpath_pr.txt').read_text()
             base_text = Path('hotpath_base.txt').read_text()
-
+  
             pr_metrics = parse_hotpath_output(pr_text)
             base_metrics = parse_hotpath_output(base_text)
-
+  
             # Calculate percentage changes
             time_change = ((pr_metrics.get('time_ms', 0) - base_metrics.get('time_ms', 0)) /
                           base_metrics.get('time_ms', 1)) * 100
             alloc_change = ((pr_metrics.get('alloc_bytes', 0) - base_metrics.get('alloc_bytes', 0)) /
                            base_metrics.get('alloc_bytes', 1)) * 100
-
+  
             # Format comparison output
             comparison = f"""\
             ### ⚡ Hotpath Performance Profile
-
+  
             **Latency change:** {time_change:+.2f}% ({base_metrics.get('time_display', 'N/A')} → {pr_metrics.get('time_display', 'N/A')})
             **Allocation change:** {alloc_change:+.2f}% ({base_metrics.get('alloc_display', 'N/A')} → {pr_metrics.get('alloc_display', 'N/A')})
-
+  
             *Benchmark: Running built-in hooks (trailing-whitespace, end-of-file-fixer, check-yaml, check-toml)*
-
+  
             <details>
               <summary>Expand for detailed profiling output</summary>
-
+  
             #### PR Branch Profile
             ```
             {pr_text}
             ```
-
+  
             #### Base Branch Profile
             ```
             {base_text}
             ```
             </details>
             """
-
+  
             Path("hotpath-comparison.txt").write_text(comparison)
-
+  
         - name: Save pr-number
           run: |
             echo ${{ github.event.number }} > pr-number
@@ -613,17 +1101,165 @@ jobs:
           with:
             name: pr-number-hotpath
             path: pr-number
-
+  
         - name: Upload hotpath results
           uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
           with:
             name: hotpath-results
             path: hotpath-comparison.txt
-
+  
         - name: Display results (PR)
           if: github.event_name == 'pull_request'
           run: cat hotpath-comparison.txt >> $GITHUB_STEP_SUMMARY
-
+  
+        - name: Display results (Push)
+          if: github.event_name == 'push'
+          run: |
+            echo "### ⚡ Hotpath Performance Profile" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            echo "$PR_OUTPUT" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          env:
+            PR_OUTPUT: ${{ steps.profile_pr.outputs.output }}
+  
+        - name: "Install Node.js"
+          uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+          with:
+            node-version: ${{ env.NODE_VERSION }}
+            cache: npm
+            cache-dependency-path: LICENSE
+  
+        - name: "Install Go"
+          uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+          with:
+            go-version: ${{ env.GO_VERSION }}
+            cache-dependency-path: LICENSE
+  
+        - name: Build release binary
+          run: cargo build --release --locked
+  
+        - name: Profile base branch
+          id: profile_base
+          if: github.event_name == 'pull_request'
+          run: |
+            # Build and profile base branch
+            git checkout ${{ github.event.pull_request.base.sha }}
+            cargo build --release --locked
+  
+            # Run hotpath profiling on prek itself
+            hotpath --output-format text -- target/release/prek run --all-files --verbose \
+              > hotpath_base.txt 2>&1 || true
+  
+            git checkout -
+  
+            {
+              echo 'output<<EOF'
+              cat hotpath_base.txt
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+  
+        - name: Profile PR branch
+          id: profile_pr
+          run: |
+            # Profile PR branch
+            hotpath --output-format text -- target/release/prek run --all-files --verbose \
+              > hotpath_pr.txt 2>&1 || true
+  
+            {
+              echo 'output<<EOF'
+              cat hotpath_pr.txt
+              echo 'EOF'
+            } >> $GITHUB_OUTPUT
+  
+        - name: Compare profiling results
+          id: compare
+          if: github.event_name == 'pull_request'
+          shell: python
+          run: |
+            import re
+            from pathlib import Path
+  
+            def parse_hotpath_output(text):
+                """Extract key metrics from hotpath output"""
+                metrics = {}
+  
+                # Extract total time
+                time_match = re.search(r'Total time:\s*([\d.]+)\s*(\w+)', text)
+                if time_match:
+                    value, unit = float(time_match.group(1)), time_match.group(2)
+                    # Convert to milliseconds for comparison
+                    multipliers = {'s': 1000, 'ms': 1, 'us': 0.001, 'ns': 0.000001}
+                    metrics['time_ms'] = value * multipliers.get(unit, 1)
+                    metrics['time_display'] = f"{value}{unit}"
+  
+                # Extract allocation metrics
+                alloc_match = re.search(r'Total allocations:\s*([\d.]+)\s*(\w+)', text)
+                if alloc_match:
+                    value, unit = float(alloc_match.group(1)), alloc_match.group(2)
+                    multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
+                    metrics['alloc_bytes'] = value * multipliers.get(unit, 1)
+                    metrics['alloc_display'] = f"{value}{unit}"
+  
+                return metrics
+  
+            pr_text = Path('hotpath_pr.txt').read_text()
+            base_text = Path('hotpath_base.txt').read_text()
+  
+            pr_metrics = parse_hotpath_output(pr_text)
+            base_metrics = parse_hotpath_output(base_text)
+  
+            # Calculate percentage changes
+            time_change = ((pr_metrics.get('time_ms', 0) - base_metrics.get('time_ms', 0)) /
+                          base_metrics.get('time_ms', 1)) * 100
+            alloc_change = ((pr_metrics.get('alloc_bytes', 0) - base_metrics.get('alloc_bytes', 0)) /
+                           base_metrics.get('alloc_bytes', 1)) * 100
+  
+            # Format comparison output
+            comparison = f"""\
+            ### ⚡ Hotpath Performance Profile
+  
+            **Latency change:** {time_change:+.2f}% ({base_metrics.get('time_display', 'N/A')} → {pr_metrics.get('time_display', 'N/A')})
+            **Allocation change:** {alloc_change:+.2f}% ({base_metrics.get('alloc_display', 'N/A')} → {pr_metrics.get('alloc_display', 'N/A')})
+  
+            *Benchmark: Running built-in hooks (trailing-whitespace, end-of-file-fixer, check-yaml, check-toml)*
+  
+            <details>
+              <summary>Expand for detailed profiling output</summary>
+  
+            #### PR Branch Profile
+            ```
+            {pr_text}
+            ```
+  
+            #### Base Branch Profile
+            ```
+            {base_text}
+            ```
+            </details>
+            """
+  
+            Path("hotpath-comparison.txt").write_text(comparison)
+  
+        - name: Save pr-number
+          run: |
+            echo ${{ github.event.number }} > pr-number
+        - name: Upload pr-number
+          uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          with:
+            name: pr-number-hotpath
+            path: pr-number
+  
+        - name: Upload hotpath results
+          uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+          with:
+            name: hotpath-results
+            path: hotpath-comparison.txt
+  
+        - name: Display results (PR)
+          if: github.event_name == 'pull_request'
+          run: cat hotpath-comparison.txt >> $GITHUB_STEP_SUMMARY
+  
         - name: Display results (Push)
           if: github.event_name == 'push'
           run: |
