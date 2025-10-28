@@ -148,10 +148,11 @@ impl RustRequest {
     pub(crate) fn matches(&self, version: &RustVersion, toolchain: Option<&Path>) -> bool {
         match self {
             RustRequest::Any => true,
-            RustRequest::Channel(_) => {
-                // Channels can't be matched against specific versions without external info
-                // This will be handled during installation
-                true
+            RustRequest::Channel(_requested_channel) => {
+                // Cannot match channel names against specific version numbers
+                // e.g. request "stable" against version "1.70.0"
+                // TODO: Resolve channel by querying rustup or Rust release API
+                false
             }
             RustRequest::Major(major) => version.0.major == *major,
             RustRequest::MajorMinor(major, minor) => {
