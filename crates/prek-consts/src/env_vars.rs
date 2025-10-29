@@ -59,6 +59,9 @@ impl EnvVars {
     pub const GEM_PATH: &'static str = "GEM_PATH";
     pub const BUNDLE_IGNORE_CONFIG: &'static str = "BUNDLE_IGNORE_CONFIG";
     pub const BUNDLE_GEMFILE: &'static str = "BUNDLE_GEMFILE";
+
+    // Rust related
+    pub const RUSTUP_TOOLCHAIN: &'static str = "RUSTUP_TOOLCHAIN";
 }
 
 impl EnvVars {

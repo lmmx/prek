@@ -141,11 +141,66 @@ impl LanguageImpl for Rust {
 
     async fn run(
         &self,
-        _hook: &InstalledHook,
-        _filenames: &[&Path],
-        _store: &Store,
+        hook: &InstalledHook,
+        filenames: &[&Path],
+        store: &Store,
     ) -> anyhow::Result<(i32, Vec<u8>)> {
-        anyhow::bail!("Rust language execution not yet implemented")
+        let env_dir = hook.env_path().expect("Rust hook must have env path");
+        let info = hook.install_info().expect("Rust hook must be installed");
+
+        let rust_bin = bin_dir(env_dir);
+        let rust_tools = store.tools_path(ToolBucket::Rust);
+        let rustc_bin = info.toolchain.parent().expect("Rust bin should exist");
+
+        // Determine if we're using prek-installed Rust or system Rust
+        let is_prek_rust = rustc_bin.starts_with(rust_tools);
+
+        // Only set RUSTUP_TOOLCHAIN if using prek-installed Rust
+        let rust_envs = if is_prek_rust {
+            // Extract toolchain name from the path
+            // (e.g. "stable" from ~/.cache/prek/tools/rust/stable)
+            let toolchain = rustc_bin
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("stable");
+            vec![(EnvVars::RUSTUP_TOOLCHAIN, toolchain)]
+        } else {
+            vec![]
+        };
+
+        let new_path = prepend_paths(&[&rust_bin]).context("Failed to join PATH")?;
+
+        let entry = hook.entry.resolve(Some(&new_path))?;
+        let run = async move |batch: &[&Path]| {
+            let mut output = Cmd::new(&entry[0], "rust hook")
+                .current_dir(hook.work_dir())
+                .args(&entry[1..])
+                .env("PATH", &new_path)
+                .env("CARGO_HOME", env_dir)
+                .envs(rust_envs.iter().map(|(k, v)| (*k, *v)))
+                .args(&hook.args)
+                .args(batch)
+                .check(false)
+                .pty_output()
+                .await?;
+
+            output.stdout.extend(output.stderr);
+            let code = output.status.code().unwrap_or(1);
+            anyhow::Ok((code, output.stdout))
+        };
+
+        let results = run_by_batch(hook, filenames, run).await?;
+
+        let mut combined_status = 0;
+        let mut combined_output = Vec::new();
+
+        for (code, output) in results {
+            combined_status |= code;
+            combined_output.extend(output);
+        }
+
+        Ok((combined_status, combined_output))
     }
 }
 
