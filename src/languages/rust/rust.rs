@@ -152,18 +152,10 @@ impl LanguageImpl for Rust {
         let rust_tools = store.tools_path(ToolBucket::Rust);
         let rustc_bin = info.toolchain.parent().expect("Rust bin should exist");
 
-        // Determine if we're using prek-installed Rust or system Rust
-        let is_prek_rust = rustc_bin.starts_with(rust_tools);
-
-        // Only set RUSTUP_TOOLCHAIN if using prek-installed Rust
-        let rust_envs = if is_prek_rust {
-            // Extract toolchain name from the path
-            // (e.g. "stable" from ~/.cache/prek/tools/rust/stable)
-            let toolchain = rustc_bin
-                .parent()
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .unwrap_or("stable");
+        // Only set RUSTUP_TOOLCHAIN if using prek-installed Rust (not system)
+        let rust_envs = if rustc_bin.starts_with(rust_tools) {
+            // Use the stored version as the toolchain specifier
+            let toolchain = info.language_version.to_string();
             vec![(EnvVars::RUSTUP_TOOLCHAIN, toolchain)]
         } else {
             vec![]
@@ -178,7 +170,7 @@ impl LanguageImpl for Rust {
                 .args(&entry[1..])
                 .env("PATH", &new_path)
                 .env("CARGO_HOME", env_dir)
-                .envs(rust_envs.iter().map(|(k, v)| (*k, *v)))
+                .envs(rust_envs.iter().map(|(k, v)| (k, v.as_str())))
                 .args(&hook.args)
                 .args(batch)
                 .check(false)
