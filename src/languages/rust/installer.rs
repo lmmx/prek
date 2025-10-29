@@ -135,7 +135,15 @@ impl RustInstaller {
         // Check cache first
         if let Ok(rust) = self.find_installed(request) {
             trace!(%rust, "Found installed rust");
-            return Ok(rust);
+            let toolchain = rust
+                .bin()
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .map(std::string::ToString::to_string)
+                .context("Failed to extract toolchain name")?;
+            return rust.fill_version_with_toolchain(&toolchain).await;
         }
 
         // Check system second
