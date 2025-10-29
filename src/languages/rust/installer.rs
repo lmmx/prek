@@ -333,7 +333,11 @@ async fn install_rust_with_toolchain(toolchain: &str, envdir: &Path) -> Result<(
     }
 
     // Install the requested toolchain
-    Cmd::new("rustup", "install toolchain")
+    let rustup_bin = bin_dir(&envdir)
+        .join("rustup")
+        .with_extension(EXE_EXTENSION);
+
+    Cmd::new(&rustup_bin, "install toolchain")
         .args(["toolchain", "install", "--no-self-update", toolchain])
         .envs(env.iter().map(|(k, v)| (*k, v.as_path())))
         .check(true)
