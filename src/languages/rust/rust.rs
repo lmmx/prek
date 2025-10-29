@@ -161,7 +161,7 @@ impl LanguageImpl for Rust {
             vec![]
         };
 
-        let new_path = prepend_paths(&[&rust_bin]).context("Failed to join PATH")?;
+        let new_path = prepend_paths(&[&rust_bin, rustc_bin]).context("Failed to join PATH")?;
 
         let entry = hook.entry.resolve(Some(&new_path))?;
         let run = async move |batch: &[&Path]| {
