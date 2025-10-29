@@ -1,5 +1,5 @@
 use assert_fs::assert::PathAssert;
-use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
+use assert_fs::fixture::{FileWriteStr, PathChild};
 use constants::env_vars::EnvVars;
 
 use crate::common::{TestContext, cmd_snapshot};
@@ -107,71 +107,38 @@ fn additional_dependencies_cli() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Test that a local Rust project with library dependencies can be installed.
+/// Test that a local Rust hook with CLI dependencies (lychee) can be installed.
 #[test]
-fn local_with_lib_deps() -> anyhow::Result<()> {
+fn local_with_cli_deps() -> anyhow::Result<()> {
     let context = TestContext::new();
     context.init_project();
 
-    context.work_dir().child("src").create_dir_all()?;
-    context
-        .work_dir()
-        .child("Cargo.toml")
-        .write_str(indoc::indoc! {r#"
-        [package]
-        name = "test-hook"
-        version = "0.1.0"
-        edition = "2021"
-
-        [[bin]]
-        name = "test-hook"
-        path = "src/main.rs"
-    "#})?;
-    context
-        .work_dir()
-        .child("src/main.rs")
-        .write_str(indoc::indoc! {r#"
-        use upon::Engine;
-
-        fn main() {
-            let engine = Engine::new();
-            engine.add_template("hello", "Hello {{ user.name }}!")?;
-            let value = engine
-                .template("hello")
-                .render(upon::value!{ user: { name: "world" }})
-                .to_string()?;
-            assert_eq!(value, "Hello world!");
-            println!("{}", value);
-        }
-    "#})?;
+    context.work_dir().child("test.md").write_str("# Test\n")?;
 
     context.write_pre_commit_config(indoc::indoc! {r#"
         repos:
           - repo: local
             hooks:
-              - id: test-hook
-                name: test-hook
+              - id: lychee
+                name: lychee
+                entry: lychee
                 language: rust
-                entry: test-hook
-                additional_dependencies: ["upon"]
-                always_run: true
-                verbose: true
-                pass_filenames: false
+                additional_dependencies: ["cli:lychee:0.20.1"]
+                files: \.md$
+                args:
+                  - --no-progress
     "#});
 
     context.git_add(".");
 
-    cmd_snapshot!(context.filters(), context.run(), @r#"
+    cmd_snapshot!(context.filters(), context.run(), @r"
     success: true
     exit_code: 0
     ----- stdout -----
-    test-hook................................................................Passed
-    - hook id: test-hook
-    - duration: [TIME]
-      Hello world!
+    lychee...................................................................Passed
 
     ----- stderr -----
-    "#);
+    ");
 
     Ok(())
 }
