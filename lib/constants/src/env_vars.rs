@@ -52,6 +52,9 @@ impl EnvVars {
     // Lua related
     pub const LUA_PATH: &'static str = "LUA_PATH";
     pub const LUA_CPATH: &'static str = "LUA_CPATH";
+
+    // Rust related
+    pub const RUSTUP_TOOLCHAIN: &'static str = "RUSTUP_TOOLCHAIN";
 }
 
 impl EnvVars {
