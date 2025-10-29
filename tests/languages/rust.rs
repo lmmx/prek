@@ -131,10 +131,16 @@ fn local_with_lib_deps() -> anyhow::Result<()> {
         .work_dir()
         .child("src/main.rs")
         .write_str(indoc::indoc! {r#"
-        use serde_json::json;
+        use upon::Engine;
 
         fn main() {
-            let value = json!({"hello": "world"});
+            let engine = Engine::new();
+            engine.add_template("hello", "Hello {{ user.name }}!")?;
+            let value = engine
+                .template("hello")
+                .render(upon::value!{ user: { name: "world" }})
+                .to_string()?;
+            assert_eq!(value, "Hello world!");
             println!("{}", value);
         }
     "#})?;
@@ -147,7 +153,7 @@ fn local_with_lib_deps() -> anyhow::Result<()> {
                 name: test-hook
                 language: rust
                 entry: test-hook
-                additional_dependencies: ["serde_json"]
+                additional_dependencies: ["upon"]
                 always_run: true
                 verbose: true
                 pass_filenames: false
@@ -162,7 +168,7 @@ fn local_with_lib_deps() -> anyhow::Result<()> {
     test-hook................................................................Passed
     - hook id: test-hook
     - duration: [TIME]
-      {"hello":"world"}
+      Hello world!
 
     ----- stderr -----
     "#);
