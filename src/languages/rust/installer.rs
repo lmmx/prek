@@ -278,6 +278,7 @@ fn make_executable(filename: impl AsRef<Path>) -> std::io::Result<()> {
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
 fn make_executable(_filename: impl AsRef<Path>) -> std::io::Result<()> {
     Ok(())
 }
