@@ -322,8 +322,10 @@ async fn install_rust_with_toolchain(toolchain: &str, envdir: &Path) -> Result<(
         ("RUSTUP_HOME", rustup_dir.path().to_path_buf()),
     ];
 
-    // Check if rustup already exists
-    if which::which("rustup").is_err() {
+    let rustup_bin = bin_dir(envdir).join("rustup").with_extension(EXE_EXTENSION);
+
+    // Check if rustup already exists at the expected location
+    if !rustup_bin.exists() {
         // Download rustup-init
         let url = if cfg!(windows) {
             "https://win.rustup.rs/x86_64"
@@ -364,8 +366,6 @@ async fn install_rust_with_toolchain(toolchain: &str, envdir: &Path) -> Result<(
     }
 
     // Install the requested toolchain
-    let rustup_bin = bin_dir(envdir).join("rustup").with_extension(EXE_EXTENSION);
-
     Cmd::new(&rustup_bin, "install toolchain")
         .args(["toolchain", "install", "--no-self-update", toolchain])
         .envs(env.iter().map(|(k, v)| (*k, v.as_path())))
