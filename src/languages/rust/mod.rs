@@ -1,3 +1,4 @@
+mod installer;
 #[allow(clippy::module_inception)]
 mod rust;
 mod version;
