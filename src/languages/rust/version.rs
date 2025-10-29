@@ -6,13 +6,7 @@ use std::str::FromStr;
 use serde::Deserialize;
 
 use crate::hook::InstallInfo;
-use crate::languages::version::try_into_u64_slice;
-
-#[derive(thiserror::Error, Debug)]
-pub(crate) enum Error {
-    #[error("Invalid `language_version` value: `{0}`")]
-    InvalidVersion(String),
-}
+use crate::languages::version::{Error, try_into_u64_slice};
 
 #[derive(Debug, Clone)]
 pub(crate) struct RustVersion(semver::Version);
