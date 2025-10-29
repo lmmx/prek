@@ -40,10 +40,11 @@ fn language_version() -> anyhow::Result<()> {
     rust_dir.assert(predicates::path::missing());
 
     let filters = [
-        (r"rustc 1\.\d{1,3}\.\d{1,2}", "rustc 1.X"), // Remove all but major.X
-        (r"\([a-f0-9]+ \d{4}-\d{2}-\d{2}\)", ""),    // Remove commit hash and date
-        (r"  info: .*\n", ""),                       // Remove rustup info lines
-        (r" +\n", "\n"),                             // Remove trailing whitespace from lines
+        (r"rustc (1\.70)\.\d{1,2}", "rustc $1.X"), // Keep 1.70.X format
+        (r"rustc 1\.\d{1,3}\.\d{1,2}", "rustc 1.X"), // Others become 1.X
+        (r"\([a-f0-9]+ \d{4}-\d{2}-\d{2}\)", ""),  // Remove commit hash and date
+        (r"  info: .*\n", ""),                     // Remove rustup info lines
+        (r" +\n", "\n"),                           // Remove trailing whitespace from lines
     ]
     .into_iter()
     .chain(context.filters())
