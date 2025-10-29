@@ -6,6 +6,7 @@ use crate::common::{TestContext, cmd_snapshot};
 
 /// Test `language_version` parsing and installation for Rust hooks.
 #[test]
+#[allow(clippy::unnecessary_wraps)]
 fn language_version() -> anyhow::Result<()> {
     if !EnvVars::is_set(EnvVars::CI) {
         // Skip when not running in CI, as we may have other rust versions installed locally.
@@ -38,13 +39,10 @@ fn language_version() -> anyhow::Result<()> {
     let rust_dir = context.home_dir().child("tools").child("rust");
     rust_dir.assert(predicates::path::missing());
 
-    let filters = [(
-        r"rustc (1\.\d{1,3})\.\d{1,2}",
-        "rustc $1.X",
-    )]
-    .into_iter()
-    .chain(context.filters())
-    .collect::<Vec<_>>();
+    let filters = [(r"rustc (1\.\d{1,3})\.\d{1,2}", "rustc $1.X")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
 
     cmd_snapshot!(filters, context.run().arg("-v"), @r#"
     success: true
@@ -67,6 +65,7 @@ fn language_version() -> anyhow::Result<()> {
 
 /// Test that `additional_dependencies` with cli: prefix are installed correctly.
 #[test]
+#[allow(clippy::unnecessary_wraps)]
 fn additional_dependencies_cli() -> anyhow::Result<()> {
     let context = TestContext::new();
     context.init_project();
@@ -167,6 +166,7 @@ fn local_with_lib_deps() -> anyhow::Result<()> {
 
 /// Test that system Rust can be used.
 #[test]
+#[allow(clippy::unnecessary_wraps)]
 fn system_rust() -> anyhow::Result<()> {
     let context = TestContext::new();
     context.init_project();
