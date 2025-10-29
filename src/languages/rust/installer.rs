@@ -131,7 +131,7 @@ impl RustInstaller {
         let envdir = self.root.join(&toolchain);
         install_rust_with_toolchain(&toolchain, &envdir).await?;
 
-        Ok(RustResult::from_dir(&envdir, false))
+        RustResult::from_dir(&envdir, false).fill_version().await
     }
 
     fn find_installed(&self, request: &RustRequest) -> Result<RustResult> {
