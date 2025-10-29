@@ -91,6 +91,27 @@ impl RustResult {
 
         Ok(self)
     }
+
+    pub(crate) async fn fill_version_with_toolchain(mut self, toolchain: &str) -> Result<Self> {
+        let output = self
+            .cmd("rustc version")
+            .arg("--version")
+            .env("RUSTUP_TOOLCHAIN", toolchain)
+            .check(true)
+            .output()
+            .await?;
+
+        // e.g. "rustc 1.70.0 (90c541806 2023-05-31)"
+        let version_str = String::from_utf8(output.stdout)?;
+        let version_str = version_str.split_ascii_whitespace().nth(1).ok_or_else(|| {
+            anyhow::anyhow!("Failed to parse Rust version from output: {version_str}")
+        })?;
+
+        let version = RustVersion::from_str(version_str)?;
+        self.version = version;
+
+        Ok(self)
+    }
 }
 
 pub(crate) struct RustInstaller {
@@ -131,7 +152,9 @@ impl RustInstaller {
         let envdir = self.root.join(&toolchain);
         install_rust_with_toolchain(&toolchain, &envdir).await?;
 
-        RustResult::from_dir(&envdir, false).fill_version().await
+        RustResult::from_dir(&envdir, false)
+            .fill_version_with_toolchain(&toolchain)
+            .await
     }
 
     fn find_installed(&self, request: &RustRequest) -> Result<RustResult> {
@@ -333,9 +356,7 @@ async fn install_rust_with_toolchain(toolchain: &str, envdir: &Path) -> Result<(
     }
 
     // Install the requested toolchain
-    let rustup_bin = bin_dir(&envdir)
-        .join("rustup")
-        .with_extension(EXE_EXTENSION);
+    let rustup_bin = bin_dir(envdir).join("rustup").with_extension(EXE_EXTENSION);
 
     Cmd::new(&rustup_bin, "install toolchain")
         .args(["toolchain", "install", "--no-self-update", toolchain])
