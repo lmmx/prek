@@ -96,7 +96,7 @@ impl RustResult {
         let output = self
             .cmd("rustc version")
             .arg("--version")
-            .env("RUSTUP_TOOLCHAIN", toolchain)
+            .env(EnvVars::RUSTUP_TOOLCHAIN, toolchain)
             .check(true)
             .output()
             .await?;
@@ -141,7 +141,7 @@ impl RustInstaller {
                 .and_then(|p| p.parent())
                 .and_then(|p| p.file_name())
                 .and_then(|n| n.to_str())
-                .map(std::string::ToString::to_string)
+                .map(ToString::to_string)
                 .context("Failed to extract toolchain name")?;
             return rust.fill_version_with_toolchain(&toolchain).await;
         }
@@ -157,10 +157,10 @@ impl RustInstaller {
         }
 
         let toolchain = self.resolve_version(request).await?;
-        let envdir = self.root.join(&toolchain);
-        install_rust_with_toolchain(&toolchain, &envdir).await?;
+        let env_dir = self.root.join(&toolchain);
+        install_rust_with_toolchain(&toolchain, &env_dir).await?;
 
-        RustResult::from_dir(&envdir, false)
+        RustResult::from_dir(&env_dir, false)
             .fill_version_with_toolchain(&toolchain)
             .await
     }
@@ -314,15 +314,17 @@ fn make_executable(_filename: impl AsRef<Path>) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn install_rust_with_toolchain(toolchain: &str, envdir: &Path) -> Result<()> {
+async fn install_rust_with_toolchain(toolchain: &str, env_dir: &Path) -> Result<()> {
     let rustup_dir = tempfile::tempdir()?;
 
     let env = [
-        ("CARGO_HOME", envdir.to_path_buf()),
-        ("RUSTUP_HOME", rustup_dir.path().to_path_buf()),
+        (EnvVars::CARGO_HOME, env_dir.to_path_buf()),
+        (EnvVars::RUSTUP_HOME, rustup_dir.path().to_path_buf()),
     ];
 
-    let rustup_bin = bin_dir(envdir).join("rustup").with_extension(EXE_EXTENSION);
+    let rustup_bin = bin_dir(env_dir)
+        .join("rustup")
+        .with_extension(EXE_EXTENSION);
 
     // Check if rustup already exists at the expected location
     if !rustup_bin.exists() {
