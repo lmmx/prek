@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::hook::InstallInfo;
 use crate::languages::version::{Error, try_into_u64_slice};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RustVersion(semver::Version);
 
 impl Default for RustVersion {
@@ -28,21 +28,6 @@ impl Deref for RustVersion {
 impl Display for RustVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for RustVersion {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct _Version {
-            version: String,
-        }
-
-        let v = _Version::deserialize(deserializer)?;
-        v.version.parse().map_err(serde::de::Error::custom)
     }
 }
 
@@ -79,11 +64,7 @@ impl FromStr for RustRequest {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() || s == "default" {
-            return Ok(RustRequest::Any);
-        }
-
-        if s == "system" {
+        if s.is_empty() {
             return Ok(RustRequest::Any);
         }
 

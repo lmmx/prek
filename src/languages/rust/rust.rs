@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
-
 use constants::env_vars::EnvVars;
+use itertools::{Either, Itertools};
 
 use crate::cli::reporter::HookInstallReporter;
 use crate::hook::{Hook, InstallInfo, InstalledHook};
@@ -67,17 +67,14 @@ impl LanguageImpl for Rust {
         let cargo_home = &info.env_path;
 
         // Split dependencies by cli: prefix
-        let cli_deps: Vec<_> = hook
-            .additional_dependencies
-            .iter()
-            .filter(|d| d.starts_with("cli:"))
-            .map(|d| d.strip_prefix("cli:").unwrap())
-            .collect();
-        let lib_deps: Vec<_> = hook
-            .additional_dependencies
-            .iter()
-            .filter(|d| !d.starts_with("cli:"))
-            .collect();
+        let (cli_deps, lib_deps): (Vec<_>, Vec<_>) =
+            hook.additional_dependencies.iter().partition_map(|dep| {
+                if let Some(stripped) = dep.strip_prefix("cli:") {
+                    Either::Left(stripped)
+                } else {
+                    Either::Right(dep)
+                }
+            });
 
         // Install library dependencies
         if !lib_deps.is_empty() {
@@ -88,7 +85,7 @@ impl LanguageImpl for Rust {
                     cmd.arg(format_cargo_dependency(dep.as_str()));
                 }
                 cmd.current_dir(repo)
-                    .env("CARGO_HOME", cargo_home)
+                    .env(EnvVars::CARGO_HOME, cargo_home)
                     .remove_git_env()
                     .check(true)
                     .output()
@@ -103,7 +100,7 @@ impl LanguageImpl for Rust {
                 .arg(cargo_home)
                 .args(["--path", "."])
                 .current_dir(repo)
-                .env("CARGO_HOME", cargo_home)
+                .env(EnvVars::CARGO_HOME, cargo_home)
                 .remove_git_env()
                 .check(true)
                 .output()
@@ -120,7 +117,7 @@ impl LanguageImpl for Rust {
             if !version.is_empty() {
                 cmd.args(["--version", version]);
             }
-            cmd.env("CARGO_HOME", cargo_home)
+            cmd.env(EnvVars::CARGO_HOME, cargo_home)
                 .remove_git_env()
                 .check(true)
                 .output()
@@ -168,8 +165,8 @@ impl LanguageImpl for Rust {
             let mut output = Cmd::new(&entry[0], "rust hook")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
-                .env("PATH", &new_path)
-                .env("CARGO_HOME", env_dir)
+                .env(EnvVars::PATH, &new_path)
+                .env(EnvVars::CARGO_HOME, env_dir)
                 .envs(rust_envs.iter().map(|(k, v)| (k, v.as_str())))
                 .args(&hook.args)
                 .args(batch)

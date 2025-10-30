@@ -62,6 +62,8 @@ impl EnvVars {
 
     // Rust related
     pub const RUSTUP_TOOLCHAIN: &'static str = "RUSTUP_TOOLCHAIN";
+    pub const CARGO_HOME: &'static str = "CARGO_HOME";
+    pub const RUSTUP_HOME: &'static str = "RUSTUP_HOME";
 }
 
 impl EnvVars {
