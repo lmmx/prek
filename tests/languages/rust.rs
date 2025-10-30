@@ -1,16 +1,15 @@
 use assert_fs::assert::PathAssert;
-use assert_fs::fixture::{FileWriteStr, PathChild};
+use assert_fs::fixture::PathChild;
 use constants::env_vars::EnvVars;
 
 use crate::common::{TestContext, cmd_snapshot};
 
 /// Test `language_version` parsing and installation for Rust hooks.
 #[test]
-#[allow(clippy::unnecessary_wraps)]
-fn language_version() -> anyhow::Result<()> {
+fn language_version() {
     if !EnvVars::is_set(EnvVars::CI) {
         // Skip when not running in CI, as we may have other rust versions installed locally.
-        return Ok(());
+        return;
     }
 
     let context = TestContext::new();
@@ -65,14 +64,11 @@ fn language_version() -> anyhow::Result<()> {
 
     ----- stderr -----
     "#);
-
-    Ok(())
 }
 
 /// Test that `additional_dependencies` with cli: prefix are installed correctly.
 #[test]
-#[allow(clippy::unnecessary_wraps)]
-fn additional_dependencies_cli() -> anyhow::Result<()> {
+fn additional_dependencies_cli() {
     let context = TestContext::new();
     context.init_project();
 
@@ -83,8 +79,8 @@ fn additional_dependencies_cli() -> anyhow::Result<()> {
               - id: rust-cli
                 name: rust-cli
                 language: rust
-                entry: cargo-audit --version
-                additional_dependencies: ["cli:cargo-audit"]
+                entry: prek-rust-echo Hello, Prek!
+                additional_dependencies: ["cli:prek-rust-echo"]
                 always_run: true
                 verbose: true
                 pass_filenames: false
@@ -99,54 +95,47 @@ fn additional_dependencies_cli() -> anyhow::Result<()> {
     rust-cli.................................................................Passed
     - hook id: rust-cli
     - duration: [TIME]
-      cargo-audit 0.21.2
+      Hello, Prek!
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
 
-/// Test that a local Rust hook with CLI dependencies (lychee) can be installed.
+/// Test that remote Rust hooks are installed and run correctly.
 #[test]
-fn local_with_cli_deps() -> anyhow::Result<()> {
+fn remote_hooks() {
     let context = TestContext::new();
     context.init_project();
 
-    context.work_dir().child("test.md").write_str("# Test\n")?;
-
     context.write_pre_commit_config(indoc::indoc! {r#"
         repos:
-          - repo: local
+          - repo: https://github.com/prek-test-repos/rust-hooks
+            rev: v1.0.0
             hooks:
-              - id: lychee
-                name: lychee
-                entry: lychee
-                language: rust
-                additional_dependencies: ["cli:lychee:0.20.1"]
-                files: \.md$
-                args:
-                  - --no-progress
+              - id: hello-world
+                verbose: true
+                pass_filenames: false
+                always_run: true
+                args: ["Hello World"]
     "#});
-
     context.git_add(".");
 
     cmd_snapshot!(context.filters(), context.run(), @r"
     success: true
     exit_code: 0
     ----- stdout -----
-    lychee...................................................................Passed
+    Hello World..............................................................Passed
+    - hook id: hello-world
+    - duration: [TIME]
+      Hello World
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
 
 /// Test that system Rust can be used.
 #[test]
-#[allow(clippy::unnecessary_wraps)]
-fn system_rust() -> anyhow::Result<()> {
+fn system_rust() {
     let context = TestContext::new();
     context.init_project();
 
@@ -172,6 +161,4 @@ fn system_rust() -> anyhow::Result<()> {
 
     ----- stderr -----
     ");
-
-    Ok(())
 }
