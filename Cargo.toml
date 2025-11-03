@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib/*"]
+members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
@@ -8,7 +8,7 @@ homepage = "https://prek.j178.dev/"
 license = "MIT"
 
 [workspace.dependencies]
-constants = { path = "lib/constants" }
+prek-consts = { path = "crates/prek-consts" }
 serde_yaml = { version = "0.9.34" }
 thiserror = { version = "2.0.11" }
 tracing = { version = "0.1.40" }
@@ -46,7 +46,6 @@ axoupdater = { version = "0.9.0", default-features = false, features = ["github_
 bstr = { version = "1.11.0" }
 clap = { version = "4.5.16", features = ["derive", "env", "string", "wrap_help"] }
 clap_complete = { version = "4.5.37", features = ["unstable-dynamic"] }
-constants = { workspace = true }
 ctrlc = { version = "3.4.5" }
 dunce = { version = "1.0.5" }
 etcetera = { version = "0.11.0" }
@@ -93,12 +92,13 @@ tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 unicode-width = { version = "0.2.0" }
 url = { version = "2.5.2", features = ["serde"] }
 which = { version = "8.0.0" }
-prek-yaml = { path = "lib/prek-yaml" }
+prek-consts = { workspace = true }
+prek-yaml = { path = "crates/prek-yaml" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { version = "0.2.164" }
 pprof = { version = "0.15.0", optional = true }
-prek-pty = { path = "lib/prek-pty" }
+prek-pty = { path = "crates/prek-pty" }
 
 [build-dependencies]
 fs-err = { version = "3.1.0" }
