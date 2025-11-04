@@ -141,3 +141,119 @@ impl RustRequest {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Language;
+    use crate::hook::InstallInfo;
+    use rustc_hash::FxHashSet;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_request_from_str() -> anyhow::Result<()> {
+        assert_eq!(RustRequest::from_str("")?, RustRequest::Any);
+        assert_eq!(
+            RustRequest::from_str("stable")?,
+            RustRequest::Channel("stable".into())
+        );
+        assert_eq!(
+            RustRequest::from_str("beta")?,
+            RustRequest::Channel("beta".into())
+        );
+        assert_eq!(
+            RustRequest::from_str("nightly")?,
+            RustRequest::Channel("nightly".into())
+        );
+        assert_eq!(RustRequest::from_str("1")?, RustRequest::Major(1));
+        assert_eq!(
+            RustRequest::from_str("1.70")?,
+            RustRequest::MajorMinor(1, 70)
+        );
+        assert_eq!(
+            RustRequest::from_str("1.70.1")?,
+            RustRequest::MajorMinorPatch(1, 70, 1)
+        );
+
+        let range_str = ">=1.70, <1.72";
+        assert_eq!(
+            RustRequest::from_str(range_str)?,
+            RustRequest::Range(semver::VersionReq::parse(range_str)?, range_str.into())
+        );
+
+        let temp_dir = tempfile::tempdir()?;
+        let toolchain_path = temp_dir.path().join("rust-toolchain");
+        std::fs::write(&toolchain_path, b"")?;
+        let path_request = RustRequest::from_str(toolchain_path.to_str().unwrap())?;
+        assert_eq!(path_request, RustRequest::Path(toolchain_path.clone()));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_invalid_requests() {
+        assert!(RustRequest::from_str("unknown-channel").is_err());
+        assert!(RustRequest::from_str("1.2.3.4").is_err());
+        assert!(RustRequest::from_str("1.2.a").is_err());
+        assert!(RustRequest::from_str("/non/existent/path/to/rust").is_err());
+    }
+
+    #[test]
+    fn test_request_matches() -> anyhow::Result<()> {
+        let version = RustVersion::from_str("1.71.0")?;
+        let other_version = RustVersion::from_str("1.72.1")?;
+
+        assert!(RustRequest::Any.matches(&version, None));
+        assert!(!RustRequest::Channel("stable".into()).matches(&version, None));
+        assert!(RustRequest::Major(1).matches(&version, None));
+        assert!(!RustRequest::Major(2).matches(&version, None));
+        assert!(RustRequest::MajorMinor(1, 71).matches(&version, None));
+        assert!(!RustRequest::MajorMinor(1, 72).matches(&version, None));
+        assert!(RustRequest::MajorMinorPatch(1, 71, 0).matches(&version, None));
+        assert!(!RustRequest::MajorMinorPatch(1, 71, 1).matches(&version, None));
+
+        let temp_dir = tempfile::tempdir()?;
+        let toolchain_path = temp_dir.path().join("rust-toolchain");
+        std::fs::write(&toolchain_path, b"")?;
+
+        assert!(RustRequest::Path(toolchain_path.clone()).matches(&version, Some(&toolchain_path)));
+        assert!(!RustRequest::Path(toolchain_path.clone()).matches(&version, None));
+
+        let req = semver::VersionReq::parse(">=1.70, <1.72")?;
+        assert!(RustRequest::Range(req.clone(), ">=1.70, <1.72".into()).matches(&version, None));
+        assert!(!RustRequest::Range(req, ">=1.70, <1.72".into()).matches(&other_version, None));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_request_satisfied_by_install_info() -> anyhow::Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let toolchain_path = temp_dir.path().join("rust-toolchain");
+        std::fs::write(&toolchain_path, b"")?;
+
+        let mut install_info =
+            InstallInfo::new(Language::Rust, FxHashSet::default(), temp_dir.path())?;
+        install_info
+            .with_language_version(semver::Version::new(1, 71, 0))
+            .with_toolchain(toolchain_path.clone());
+
+        assert!(RustRequest::Any.satisfied_by(&install_info));
+        assert!(RustRequest::Major(1).satisfied_by(&install_info));
+        assert!(RustRequest::MajorMinor(1, 71).satisfied_by(&install_info));
+        assert!(RustRequest::MajorMinorPatch(1, 71, 0).satisfied_by(&install_info));
+        assert!(!RustRequest::MajorMinorPatch(1, 71, 1).satisfied_by(&install_info));
+        assert!(RustRequest::Path(toolchain_path.clone()).satisfied_by(&install_info));
+
+        let req = RustRequest::Range(
+            semver::VersionReq::parse(">=1.70, <1.72")?,
+            ">=1.70, <1.72".into(),
+        );
+        assert!(req.satisfied_by(&install_info));
+
+        let req = RustRequest::Range(semver::VersionReq::parse(">=1.72")?, ">=1.72".into());
+        assert!(!req.satisfied_by(&install_info));
+
+        Ok(())
+    }
+}
