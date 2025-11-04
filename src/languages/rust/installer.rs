@@ -157,10 +157,10 @@ impl RustInstaller {
         }
 
         let toolchain = self.resolve_version(request).await?;
-        let env_dir = self.root.join(&toolchain);
-        install_rust_with_toolchain(&toolchain, &env_dir).await?;
+        let target_dir = self.root.join(&toolchain);
+        install_rust_with_toolchain(&toolchain, &target_dir).await?;
 
-        RustResult::from_dir(&env_dir, false)
+        RustResult::from_dir(&target_dir, false)
             .fill_version_with_toolchain(&toolchain)
             .await
     }
@@ -314,15 +314,11 @@ fn make_executable(_filename: impl AsRef<Path>) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn install_rust_with_toolchain(toolchain: &str, env_dir: &Path) -> Result<()> {
+// TODO: reuse rustup from system, and share between toolchains
+async fn install_rust_with_toolchain(toolchain: &str, target_dir: &Path) -> Result<()> {
     let rustup_dir = tempfile::tempdir()?;
 
-    let env = [
-        (EnvVars::CARGO_HOME, env_dir.to_path_buf()),
-        (EnvVars::RUSTUP_HOME, rustup_dir.path().to_path_buf()),
-    ];
-
-    let rustup_bin = bin_dir(env_dir)
+    let rustup_bin = bin_dir(target_dir)
         .join("rustup")
         .with_extension(EXE_EXTENSION);
 
@@ -361,7 +357,8 @@ async fn install_rust_with_toolchain(toolchain: &str, env_dir: &Path) -> Result<
                 "--default-toolchain",
                 "none",
             ])
-            .envs(env.iter().map(|(k, v)| (*k, v.as_path())))
+            .env(EnvVars::CARGO_HOME, target_dir)
+            .env(EnvVars::RUSTUP_HOME, rustup_dir.path())
             .check(true)
             .output()
             .await?;
@@ -370,7 +367,8 @@ async fn install_rust_with_toolchain(toolchain: &str, env_dir: &Path) -> Result<
     // Install the requested toolchain
     Cmd::new(&rustup_bin, "install toolchain")
         .args(["toolchain", "install", "--no-self-update", toolchain])
-        .envs(env.iter().map(|(k, v)| (*k, v.as_path())))
+        .env(EnvVars::CARGO_HOME, target_dir)
+        .env(EnvVars::RUSTUP_HOME, rustup_dir.path())
         .check(true)
         .output()
         .await?;

@@ -1,3 +1,4 @@
+use anyhow::Result;
 use assert_fs::assert::PathAssert;
 use assert_fs::fixture::PathChild;
 use constants::env_vars::EnvVars;
@@ -6,10 +7,10 @@ use crate::common::{TestContext, cmd_snapshot};
 
 /// Test `language_version` parsing and installation for Rust hooks.
 #[test]
-fn language_version() {
+fn language_version() -> Result<()> {
     if !EnvVars::is_set(EnvVars::CI) {
         // Skip when not running in CI, as we may have other rust versions installed locally.
-        return;
+        return Ok(());
     }
 
     let context = TestContext::new();
@@ -18,14 +19,21 @@ fn language_version() {
         repos:
           - repo: local
             hooks:
-              - id: rust-stable
-                name: rust-stable
+              - id: rust-system
+                name: rust-system
                 language: rust
                 entry: rustc --version
-                language_version: 'stable'
+                language_version: system
                 pass_filenames: false
                 always_run: true
-              - id: rust-1.70
+              - id: rust-1.70 # should auto install 1.70.X
+                name: rust-1.70
+                language: rust
+                entry: rustc --version
+                language_version: '1.70'
+                always_run: true
+                pass_filenames: false
+              - id: rust-1.70 # run again to ensure reusing the installed version
                 name: rust-1.70
                 language: rust
                 entry: rustc --version
@@ -39,11 +47,8 @@ fn language_version() {
     rust_dir.assert(predicates::path::missing());
 
     let filters = [
-        (r"rustc (1\.70)\.\d{1,2}", "rustc $1.X"), // Keep 1.70.X format
-        (r"rustc 1\.\d{1,3}\.\d{1,2}", "rustc 1.X"), // Others become 1.X
-        (r"\([a-f0-9]+ \d{4}-\d{2}-\d{2}\)", ""),  // Remove commit hash and date
-        (r"  info: .*\n", ""),                     // Remove rustup info lines
-        (r" +\n", "\n"),                           // Remove trailing whitespace from lines
+        (r"rustc (1\.70)\.\d{1,2} .+", "rustc $1.X"), // Keep 1.70.X format
+        (r"rustc 1\.\d{1,3}\.\d{1,2} .+", "rustc 1.X.X"), // Others become 1.X.X
     ]
     .into_iter()
     .chain(context.filters())
@@ -53,10 +58,14 @@ fn language_version() {
     success: true
     exit_code: 0
     ----- stdout -----
-    rust-stable..............................................................Passed
-    - hook id: rust-stable
+    rust-system..............................................................Passed
+    - hook id: rust-system
     - duration: [TIME]
-      rustc 1.X
+      rustc 1.X.X
+    rust-1.70................................................................Passed
+    - hook id: rust-1.70
+    - duration: [TIME]
+      rustc 1.70.X
     rust-1.70................................................................Passed
     - hook id: rust-1.70
     - duration: [TIME]
@@ -64,6 +73,32 @@ fn language_version() {
 
     ----- stderr -----
     "#);
+
+    // Ensure that only Rust 1.70.X is installed.
+    let installed_versions = rust_dir
+        .read_dir()?
+        .flatten()
+        .filter_map(|d| {
+            let filename = d.file_name().to_string_lossy().to_string();
+            if filename.starts_with('.') {
+                None
+            } else {
+                Some(filename)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        installed_versions.len(),
+        1,
+        "Expected only one node version to be installed, but found: {installed_versions:?}"
+    );
+    assert!(
+        installed_versions.iter().any(|v| v.starts_with("1.70")),
+        "Expected node v19 to be installed, but found: {installed_versions:?}"
+    );
+
+    Ok(())
 }
 
 /// Test that `additional_dependencies` with cli: prefix are installed correctly.
@@ -128,36 +163,6 @@ fn remote_hooks() {
     - hook id: hello-world
     - duration: [TIME]
       Hello World
-
-    ----- stderr -----
-    ");
-}
-
-/// Test that system Rust can be used.
-#[test]
-fn system_rust() {
-    let context = TestContext::new();
-    context.init_project();
-
-    context.write_pre_commit_config(indoc::indoc! {r"
-        repos:
-          - repo: local
-            hooks:
-              - id: system
-                name: system
-                language: rust
-                entry: rustc --version
-                language_version: system
-                always_run: true
-                pass_filenames: false
-    "});
-    context.git_add(".");
-
-    cmd_snapshot!(context.filters(), context.run(), @r"
-    success: true
-    exit_code: 0
-    ----- stdout -----
-    system...................................................................Passed
 
     ----- stderr -----
     ");
