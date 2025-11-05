@@ -124,7 +124,6 @@ impl Language {
                 | Self::Docker
                 | Self::DockerImage
                 | Self::Fail
-                | Self::Golang
                 | Self::Lua
                 | Self::Node
                 | Self::Pygrep
