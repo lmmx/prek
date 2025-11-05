@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Context;
-use constants::env_vars::EnvVars;
+use prek_consts::env_vars::EnvVars;
 use itertools::{Either, Itertools};
 
 use crate::cli::reporter::HookInstallReporter;

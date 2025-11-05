@@ -1,7 +1,7 @@
 use anyhow::Result;
 use assert_fs::assert::PathAssert;
 use assert_fs::fixture::PathChild;
-use constants::env_vars::EnvVars;
+use prek_consts::env_vars::EnvVars;
 
 use crate::common::{TestContext, cmd_snapshot};
 
