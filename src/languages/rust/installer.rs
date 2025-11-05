@@ -5,8 +5,8 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 
 use anyhow::{Context, Result};
-use prek_consts::env_vars::EnvVars;
 use itertools::Itertools;
+use prek_consts::env_vars::EnvVars;
 use tracing::{debug, trace, warn};
 
 use crate::fs::LockedFile;
