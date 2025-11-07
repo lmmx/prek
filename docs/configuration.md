@@ -60,6 +60,12 @@ Prek supports the following environment variables:
 
 - `PREK_NATIVE_TLS` - Use system's trusted store instead of the bundled `webpki-roots` crate.
 
+- `PREK_CONTAINER_RUNTIME` - Specify the container runtime to use for container-based hooks (e.g., `docker`, `docker_image`). Options:
+
+    - `auto` (default, auto-detect available runtime)
+    - `docker`
+    - `podman`
+
 Compatibility fallbacks:
 
 - `PRE_COMMIT_ALLOW_NO_CONFIG` — Fallback for `PREK_ALLOW_NO_CONFIG`.

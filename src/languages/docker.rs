@@ -1,13 +1,16 @@
 use std::borrow::Cow;
 use std::collections::hash_map::DefaultHasher;
+use std::fmt::Display;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
 use anyhow::{Context, Result};
 use lazy_regex::regex;
-use tracing::trace;
+use prek_consts::env_vars::EnvVars;
+use tracing::{debug, trace, warn};
 
 use crate::cli::reporter::HookInstallReporter;
 use crate::hook::{Hook, InstallInfo, InstalledHook};
@@ -63,6 +66,100 @@ static CONTAINER_MOUNTS: LazyLock<Result<Vec<Mount>, Error>> = LazyLock::new(|| 
     Ok(mounts)
 });
 
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub(crate) enum ContainerRuntime {
+    Auto,
+    #[default]
+    Docker,
+    Podman,
+}
+
+impl FromStr for ContainerRuntime {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "docker" => Ok(ContainerRuntime::Docker),
+            "podman" => Ok(ContainerRuntime::Podman),
+            "auto" => Ok(ContainerRuntime::Auto),
+            _ => Err(format!("Invalid container runtime: {s}")),
+        }
+    }
+}
+
+impl ContainerRuntime {
+    fn cmd(&self) -> &str {
+        match self {
+            ContainerRuntime::Docker => "docker",
+            ContainerRuntime::Podman => "podman",
+            ContainerRuntime::Auto => unreachable!("Auto should be resolved before use"),
+        }
+    }
+}
+
+impl Display for ContainerRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ContainerRuntime::Docker => write!(f, "docker"),
+            ContainerRuntime::Podman => write!(f, "podman"),
+            ContainerRuntime::Auto => write!(f, "auto"),
+        }
+    }
+}
+
+static CONTAINER_RUNTIME: LazyLock<ContainerRuntime> = LazyLock::new(|| {
+    detect_container_runtime(
+        EnvVars::var(EnvVars::PREK_CONTAINER_RUNTIME).ok(),
+        || which::which("docker").is_ok(),
+        || which::which("podman").is_ok(),
+    )
+});
+
+/// Detect container runtime provider, prioritise docker over podman if
+/// both are on the path, unless `PREK_CONTAINER_RUNTIME` is set to override detection.
+fn detect_container_runtime<DF, PF>(
+    env_override: Option<String>,
+    docker_available: DF,
+    podman_available: PF,
+) -> ContainerRuntime
+where
+    DF: Fn() -> bool,
+    PF: Fn() -> bool,
+{
+    if let Some(val) = env_override {
+        match ContainerRuntime::from_str(&val) {
+            Ok(runtime) => {
+                if runtime != ContainerRuntime::Auto {
+                    debug!(
+                        "Container runtime overridden by {}={}",
+                        EnvVars::PREK_CONTAINER_RUNTIME,
+                        val
+                    );
+                    return runtime;
+                }
+            }
+            Err(_) => {
+                warn!(
+                    "Invalid value for {}: {}, falling back to auto detection",
+                    EnvVars::PREK_CONTAINER_RUNTIME,
+                    val
+                );
+            }
+        }
+    }
+
+    if docker_available() {
+        return ContainerRuntime::Docker;
+    }
+    if podman_available() {
+        return ContainerRuntime::Podman;
+    }
+
+    let runtime = ContainerRuntime::default();
+    debug!("No container runtime found on PATH, defaulting to {runtime}");
+    runtime
+}
+
 impl Docker {
     fn docker_tag(hook: &InstalledHook) -> String {
         let info = hook.install_info().expect("Docker hook must be installed");
@@ -79,7 +176,7 @@ impl Docker {
         };
 
         let tag = Self::docker_tag(hook);
-        let mut cmd = Cmd::new("docker", "build docker image");
+        let mut cmd = Cmd::new(CONTAINER_RUNTIME.cmd(), "build docker image");
         let cmd = cmd
             .arg("build")
             .arg("--tag")
@@ -203,7 +300,7 @@ impl Docker {
     }
 
     pub(crate) fn docker_run_cmd(work_dir: &Path) -> Result<Cmd> {
-        let mut command = Cmd::new("docker", "run container");
+        let mut command = Cmd::new(CONTAINER_RUNTIME.cmd(), "run container");
         command.arg("run").arg("--rm");
 
         if *USE_COLOR {
@@ -315,7 +412,7 @@ impl LanguageImpl for Docker {
 
 #[cfg(test)]
 mod tests {
-    use super::Docker;
+    use super::{ContainerRuntime, Docker};
     use std::io::Write;
 
     // Real-world inspired samples captured from Docker hosts.
@@ -478,5 +575,70 @@ mod tests {
         assert!(result.is_err());
 
         Ok(())
+    }
+
+    #[test]
+    fn test_detect_container_runtime() {
+        fn runtime_with(
+            env_override: Option<&str>,
+            docker_available: bool,
+            podman_available: bool,
+        ) -> ContainerRuntime {
+            super::detect_container_runtime(
+                env_override.map(ToString::to_string),
+                || docker_available,
+                || podman_available,
+            )
+        }
+
+        assert_eq!(runtime_with(None, true, false), ContainerRuntime::Docker);
+        assert_eq!(runtime_with(None, false, true), ContainerRuntime::Podman);
+        assert_eq!(
+            runtime_with(None, false, false),
+            ContainerRuntime::default()
+        );
+
+        assert_eq!(
+            runtime_with(Some("auto"), true, false),
+            ContainerRuntime::Docker
+        );
+        assert_eq!(
+            runtime_with(Some("auto"), false, true),
+            ContainerRuntime::Podman
+        );
+        assert_eq!(
+            runtime_with(Some("auto"), false, false),
+            ContainerRuntime::default()
+        );
+
+        assert_eq!(
+            runtime_with(Some("docker"), true, false),
+            ContainerRuntime::Docker
+        );
+        assert_eq!(
+            runtime_with(Some("docker"), false, true),
+            ContainerRuntime::Docker
+        );
+        assert_eq!(
+            runtime_with(Some("DOCKER"), false, false),
+            ContainerRuntime::Docker
+        );
+        assert_eq!(
+            runtime_with(Some("podman"), true, false),
+            ContainerRuntime::Podman
+        );
+        assert_eq!(
+            runtime_with(Some("podman"), false, true),
+            ContainerRuntime::Podman
+        );
+        assert_eq!(
+            runtime_with(Some("podman"), false, false),
+            ContainerRuntime::Podman
+        );
+
+        assert_eq!(
+            runtime_with(Some("invalid"), false, false),
+            ContainerRuntime::Docker
+        );
     }
 }
