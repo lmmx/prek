@@ -324,6 +324,9 @@ pub(crate) async fn init_repo(url: &str, path: &Path) -> Result<(), Error> {
     };
 
     git_cmd("init git repo")?
+        // Unset `extensions.objectFormat` if set, just follow what hash the remote uses.
+        .arg("-c")
+        .arg("init.defaultObjectFormat=")
         .arg("init")
         .arg("--template=")
         .arg(path)
