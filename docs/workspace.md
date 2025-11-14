@@ -67,6 +67,12 @@ When running in workspace mode:
 2. **Apply global filters**: Files are filtered based on include/exclude patterns from the workspace root config
 3. **Distribute to projects**: Each project receives a subset of files based on its location
 
+#### File Visibility Constraints
+
+**Important**: Each project can only see and process files within its own directory tree. This is a fundamental design principle of workspace mode that ensures proper isolation between projects.
+
+A hook defined in `frontend/.pre-commit-config.yaml` can only match files under the `frontend/` directory—it cannot reference files from sibling directories like `backend/`. If hooks need to reference files across multiple projects, move the hook configuration to a common ancestor directory (e.g., the workspace root).
+
 ### Hook Execution
 
 For each project:
