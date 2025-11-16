@@ -2,15 +2,15 @@
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.15-alpha.2"
+version = "0.2.15-alpha.3"
 edition = "2024"
 repository = "https://github.com/j178/prek"
 homepage = "https://prek.j178.dev/"
 license = "MIT"
 
 [workspace.dependencies]
-prek-consts = { path = "crates/prek-consts", version = "0.2.15-alpha.2" }
-prek-pty = { path = "crates/prek-pty", version = "0.2.15-alpha.2" }
+prek-consts = { path = "crates/prek-consts", version = "0.2.15-alpha.3" }
+prek-pty = { path = "crates/prek-pty", version = "0.2.15-alpha.3" }
 
 rustix = { version = "1.0.8", features = ["pty", "process", "fs", "termios"] }
 serde-saphyr = { version = "0.0.7" }
@@ -67,7 +67,7 @@ lazy-regex = { version = "3.4.2" }
 levenshtein = { version = "1.0.5" }
 # Enable static linking for liblzma
 # This is required for the `xz` feature in `async-compression`
-liblzma = { version = "*", features = ["static"] }
+liblzma = { version = "0.4.5", features = ["static"] }
 memchr = { version = "2.7.5" }
 owo-colors = { version = "4.1.0" }
 path-clean = { version = "1.0.1" }
