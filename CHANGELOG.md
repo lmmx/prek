@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.15-alpha.1
+## 0.2.15-alpha.2
 
 Released on 2025-11-16.
 
