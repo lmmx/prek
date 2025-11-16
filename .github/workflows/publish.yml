@@ -83,7 +83,7 @@ jobs:
       - run: |
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
             pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
-            prerelease=$(echo "PLAN" | jq ".announcement_is_prerelease")
+            prerelease=$(echo "$PLAN" | jq ".announcement_is_prerelease")
             if [ "$prerelease" = "true" ]; then
               npm publish --tag beta --provenance --access public "./npm/${pkg}"
             else
