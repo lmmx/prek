@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use clap::Parser;
 use futures::StreamExt;
+use serde::Deserialize;
 
 use crate::hook::Hook;
 use crate::run::CONCURRENCY;
@@ -53,16 +54,19 @@ async fn check_file(
     if content.is_empty() {
         return Ok((0, Vec::new()));
     }
-    let content = String::from_utf8(content)?;
 
+    let deserializer = serde_yaml::Deserializer::from_slice(&content);
     if allow_multi_docs {
-        if let Err(e) = serde_saphyr::from_multiple::<serde_json::Value>(&content) {
-            let error_message = format!("{}: Failed to yaml decode ({e})\n", filename.display());
-            return Ok((1, error_message.into_bytes()));
+        for doc in deserializer {
+            if let Err(e) = serde_yaml::Value::deserialize(doc) {
+                let error_message =
+                    format!("{}: Failed to yaml decode ({e})\n", filename.display());
+                return Ok((1, error_message.into_bytes()));
+            }
         }
         Ok((0, Vec::new()))
     } else {
-        match serde_saphyr::from_str::<serde_json::Value>(&content) {
+        match serde_yaml::from_slice::<serde_yaml::Value>(&content) {
             Ok(_) => Ok((0, Vec::new())),
             Err(e) => {
                 let error_message =
@@ -155,6 +159,30 @@ key2: value2
         assert!(!output.is_empty());
 
         let (code, output) = check_file(Path::new(""), &file_path, true).await?;
+        assert_eq!(code, 0);
+        assert!(output.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_yaml_with_binary_scalar() -> Result<()> {
+        let dir = tempdir()?;
+        let content = b"\
+response:
+  body:
+    string: !!binary |
+      H4sIAAAAAAAAA4xTPW/bMBDd9SsON9uFJaeJ4y0oujRIEXQpisiQaOokM6VIgjzFSQ3/94KSYzmt
+      A2TRwPfBd/eoXQKAqsIloNwIlq3T0y/rF6JfbXYT2m3rvan+NLfXt/zj2/f5NsVJVNj1I0l+VX2S
+      tnWaWFkzwNKTYIqu6dXlPL28mmeLHmhtRTrKGsfTCzvNZtnFNE2n2ewg3FglKeASHhIAgF3/jRFN
+      Rc+4hNnk9aSlEERDuDySANBbHU9QhKACC8M4GUFpDZPpU5dl+Risyc0uNwA5smJNOS4hxxu4Jx8c
+      SVZPBNbA12enhRFxugC2hjurSXZaeLj3VCkZAbiLg4UcJ4Of6HhjfYiODzn+JK3FVjATEIPQOa4O
+      vMqqyDGd1rnZ56Ysy9PEnuouCH1gnADCGMtDpHjF6oDsj9vRtnHersM/UqyVUWFTeBLBmriJwNZh
+      j+4TgFXfQvdmsei8bR0XbH9Tf91iPtjhWPsIzq8PIFsWejxPs2xyxq6oiIXS4aRGlEJuqBqlY+ei
+      q5Q9AZKTof9Pc857GFyZ5iP2IyAlOaaqcMfGz9E8xb/iPdpxyX1gDOSflKSCFflYREW16PTwYDG8
+      BKa2qJVpyDuvhldbu0LOFtnicypnC0z2yV8AAAD//wMALvIkjL4DAAA=
+";
+        let file_path = create_test_file(&dir, "binary.yaml", content).await?;
+        let (code, output) = check_file(Path::new(""), &file_path, false).await?;
         assert_eq!(code, 0);
         assert!(output.is_empty());
         Ok(())
