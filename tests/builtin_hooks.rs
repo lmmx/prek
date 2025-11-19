@@ -10,6 +10,40 @@ use crate::common::{TestContext, cmd_snapshot};
 
 mod common;
 
+/// Tests that `repo: builtin` hooks doesn't create hook env.
+#[test]
+fn builtin_hooks_not_create_env() {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: end-of-file-fixer
+    "});
+    context.git_add(".");
+
+    cmd_snapshot!(context.filters(), context.run(), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    fix end of files.........................................................Passed
+
+    ----- stderr -----
+    ");
+
+    let hooks_dir = context
+        .home_dir()
+        .join("hooks")
+        .read_dir()
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect::<Vec<_>>();
+    assert_eq!(hooks_dir.len(), 0);
+}
+
 #[test]
 fn end_of_file_fixer_hook() -> Result<()> {
     let context = TestContext::new();
@@ -18,8 +52,7 @@ fn end_of_file_fixer_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: end-of-file-fixer
     "});
@@ -92,8 +125,7 @@ fn check_yaml_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-yaml
     "});
@@ -151,8 +183,7 @@ fn check_yaml_multiple_document() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-yaml
                 name: Python version
@@ -198,8 +229,7 @@ fn check_json_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-json
     "});
@@ -258,8 +288,7 @@ fn mixed_line_ending_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: mixed-line-ending
     "});
@@ -310,8 +339,7 @@ fn mixed_line_ending_hook() -> Result<()> {
     // Test with --fix=no
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: mixed-line-ending
                 args: ['--fix=no']
@@ -337,8 +365,7 @@ fn mixed_line_ending_hook() -> Result<()> {
     // Test with --fix=crlf
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: mixed-line-ending
                 args: ['--fix', 'crlf']
@@ -367,8 +394,7 @@ fn mixed_line_ending_hook() -> Result<()> {
     // Test mixed args with missing value for `--fix`
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: mixed-line-ending
                 args: ['--fix']
@@ -406,8 +432,7 @@ fn check_added_large_files_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-added-large-files
                 args: ['--maxkb', '1']
@@ -444,8 +469,7 @@ fn check_added_large_files_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-added-large-files
                 args: ['--maxkb=1', '--enforce-all']
@@ -471,8 +495,7 @@ fn check_added_large_files_hook() -> Result<()> {
     // Test git-lfs integration
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-added-large-files
                 args: ['--maxkb=1']
@@ -519,8 +542,7 @@ fn builtin_hooks_workspace_mode() -> Result<()> {
           - repo: meta
             hooks:
               - id: identity
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: end-of-file-fixer
               - id: check-yaml
@@ -706,8 +728,7 @@ fn fix_byte_order_marker_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: fix-byte-order-marker
     "});
@@ -771,8 +792,7 @@ fn check_symlinks_hook_unix() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-symlinks
     "});
@@ -836,8 +856,7 @@ fn check_symlinks_hook_windows() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-symlinks
     "});
@@ -906,8 +925,7 @@ fn detect_private_key_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: detect-private-key
     "});
@@ -997,8 +1015,7 @@ fn check_merge_conflict_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-merge-conflict
                 args: ['--assume-in-merge']
@@ -1079,8 +1096,7 @@ fn check_merge_conflict_without_assume_flag() -> Result<()> {
     // if we're not actually in a merge state
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-merge-conflict
     "});
@@ -1118,8 +1134,7 @@ fn check_xml_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-xml
     "});
@@ -1217,8 +1232,7 @@ fn check_xml_with_features() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-xml
     "});
@@ -1276,8 +1290,7 @@ fn no_commit_to_branch_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: no-commit-to-branch
     "});
@@ -1349,8 +1362,7 @@ fn no_commit_to_branch_hook_with_custom_branches() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: no-commit-to-branch
                 args: ['--branch', 'develop', '--branch', 'production']
@@ -1423,8 +1435,7 @@ fn no_commit_to_branch_hook_with_patterns() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: no-commit-to-branch
                 args: ['--pattern', '^feature/.*', '--pattern', '.*-wip$']
@@ -1519,8 +1530,7 @@ fn no_commit_to_branch_hook_with_patterns() -> Result<()> {
     // Test 6: Try to commit to branch with invalid pattern (should fail - invalid pattern)
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: no-commit-to-branch
                 args: ['--pattern', '*invalid-pattern*']
@@ -1555,8 +1565,7 @@ fn check_executables_have_shebangs_hook() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-executables-have-shebangs
     "});
@@ -1642,8 +1651,7 @@ fn check_executables_have_shebangs_win() -> Result<()> {
     let repo_path = context.work_dir();
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-executables-have-shebangs
     "});
@@ -1698,8 +1706,7 @@ fn check_executables_have_shebangs_various_cases() -> Result<()> {
 
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-executables-have-shebangs
     "});
@@ -1793,8 +1800,7 @@ fn check_executables_have_shebangs_various_cases_win() -> Result<()> {
     context.configure_git_author();
     context.write_pre_commit_config(indoc::indoc! {r"
         repos:
-          - repo: https://github.com/pre-commit/pre-commit-hooks
-            rev: v5.0.0
+          - repo: builtin
             hooks:
               - id: check-executables-have-shebangs
     "});
