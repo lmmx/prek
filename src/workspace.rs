@@ -14,7 +14,7 @@ use prek_consts::{ALT_CONFIG_FILE, CONFIG_FILE};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, trace};
 
 use crate::cli::run::Selectors;
 use crate::config::{self, Config, ManifestHook, read_config};
@@ -92,7 +92,7 @@ impl PartialEq for Project {
 impl Eq for Project {}
 
 impl Hash for Project {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
         self.config_path.hash(state);
     }
 }
@@ -650,6 +650,9 @@ impl Workspace {
     ) -> Result<Vec<Arc<Project>>, Error> {
         let projects = Mutex::new(Ok(Vec::new()));
 
+        let git_root = GIT_ROOT.as_ref().map_err(|e| Error::Git(e.into()))?;
+        let submodules = git::list_submodules(git_root).unwrap_or_default();
+
         ignore::WalkBuilder::new(root)
             .follow_links(false)
             .add_custom_ignore_filename(".prekignore")
@@ -664,6 +667,14 @@ impl Workspace {
                     };
                     if !file_type.is_dir() {
                         return WalkState::Continue;
+                    }
+                    // Skip git submodules
+                    if submodules.iter().any(|submodule| submodule == entry.path()) {
+                        trace!(
+                            path = %entry.path().user_display(),
+                            "Skipping git submodule"
+                        );
+                        return WalkState::Skip;
                     }
 
                     match Project::from_directory(entry.path()) {
