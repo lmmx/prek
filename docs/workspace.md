@@ -93,7 +93,29 @@ Projects are executed from **deepest to shallowest**:
 
 This ensures that more specific configurations (deeper projects) take precedence over general ones.
 
-**Note**: Files in subprojects will be processed multiple times - once for each project in the hierarchy that contains them. For example, a file in `src/backend/` will be checked by hooks in `src/backend/`, then `src/`, then the workspace root.
+### File Processing Behavior
+
+**By default**, files in subprojects will be processed multiple times - once for each project in the hierarchy that contains them. For example, a file in `src/backend/` will be checked by hooks in `src/backend/`, then `src/`, then the workspace root.
+
+**To isolate a project**, you can set `orphan: true` in its configuration. When enabled, files in this project are "consumed" by it and will not be processed by parent projects:
+
+```yaml
+# src/backend/.pre-commit-config.yaml
+orphan: true
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+```
+
+With this option:
+- Files in `src/backend/` are processed **only** by hooks in `src/backend/`
+- Files in `src/` (but not in `src/backend/`) are processed by hooks in `src/` and the workspace root
+- Files in the root (but not in subdirectories with configs) are processed by hooks in the root
+
+This can be useful to avoid redundant processing in monorepos with nested project structures or to completely isolate a subproject from parent configurations.
 
 ### Example Output
 
@@ -133,6 +155,10 @@ Notice how:
 - Each project runs in its own working directory
 - The workspace root processes all files in the entire workspace
 - Projects are executed from deepest to shallowest as described in the execution order
+
+#### Orphan Projects and Selectors
+
+When you combine `orphan: true` with selectors such as `--skip`, remember that orphans keep the files they cover. Even if you skip an orphan project (for example via `--skip src/backend/`), that project still claims ownership of the files under its directory. Those files will not fall back to parent projects, so you can disable or precisely target orphaned projects without reintroducing duplicate processing upstream.
 
 ## Command Line Usage
 

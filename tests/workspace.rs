@@ -1065,3 +1065,179 @@ fn submodule_discovery() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn orphan_projects() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    // Create a hook that shows which files it processes
+    let config = indoc! {r#"
+    exclude: \.pre-commit-config\.yaml$
+    repos:
+      - repo: local
+        hooks:
+        - id: show-files
+          name: Show Files
+          language: python
+          entry: python -c 'import sys; print("Processing {} files".format(len(sys.argv[1:]))); [print("  - {}".format(f)) for f in sys.argv[1:]]'
+          pass_filenames: true
+          verbose: true
+    "#};
+
+    // Setup workspace with nested projects
+    context
+        .work_dir()
+        .child("src/backend/.pre-commit-config.yaml")
+        .write_str(config)?;
+    context
+        .work_dir()
+        .child("src/.pre-commit-config.yaml")
+        .write_str(config)?;
+    context
+        .work_dir()
+        .child(".pre-commit-config.yaml")
+        .write_str(config)?;
+
+    // Create test files
+    context
+        .work_dir()
+        .child("src/backend/test.py")
+        .write_str("")?;
+    context.work_dir().child("src/test.py").write_str("")?;
+    context.work_dir().child("test.py").write_str("")?;
+    context.git_add(".");
+
+    // Without `orphan`: files in subprojects are processed multiple times
+    cmd_snapshot!(context.filters(), context.run().arg("--all-files"), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    Running hooks for `src/backend`:
+    Show Files...............................................................Passed
+    - hook id: show-files
+    - duration: [TIME]
+
+      Processing 1 files
+        - test.py
+
+    Running hooks for `src`:
+    Show Files...............................................................Passed
+    - hook id: show-files
+    - duration: [TIME]
+
+      Processing 2 files
+        - test.py
+        - backend/test.py
+
+    Running hooks for `.`:
+    Show Files...............................................................Passed
+    - hook id: show-files
+    - duration: [TIME]
+
+      Processing 3 files
+        - src/test.py
+        - src/backend/test.py
+        - test.py
+
+    ----- stderr -----
+    ");
+
+    // Enable `orphan`
+    context
+        .work_dir()
+        .child("src/backend/.pre-commit-config.yaml")
+        .write_str(indoc! {r#"
+        orphan: true
+        exclude: \.pre-commit-config\.yaml$
+        repos:
+          - repo: local
+            hooks:
+            - id: show-files
+              name: Show Files
+              language: python
+              entry: python -c 'import sys; print("Processing {} files".format(len(sys.argv[1:]))); [print("  - {}".format(f)) for f in sys.argv[1:]]'
+              pass_filenames: true
+              verbose: true
+    "#})?;
+
+    // `files` match nothing, but files are still "consumed"
+    context
+        .work_dir()
+        .child("src/.pre-commit-config.yaml")
+        .write_str(indoc! {r#"
+        orphan: true
+        files: ^$
+        exclude: \.pre-commit-config\.yaml$
+        repos:
+          - repo: local
+            hooks:
+            - id: show-files
+              name: Show Files
+              language: python
+              entry: python -c 'import sys; print("Processing {} files".format(len(sys.argv[1:]))); [print("  - {}".format(f)) for f in sys.argv[1:]]'
+              pass_filenames: true
+              verbose: true
+    "#})?;
+
+    context
+        .work_dir()
+        .child(".pre-commit-config.yaml")
+        .write_str(indoc! {r#"
+        orphan: false
+        exclude: \.pre-commit-config\.yaml$
+        repos:
+          - repo: local
+            hooks:
+            - id: show-files
+              name: Show Files
+              language: python
+              entry: python -c 'import sys; print("Processing {} files".format(len(sys.argv[1:]))); [print("  - {}".format(f)) for f in sys.argv[1:]]'
+              pass_filenames: true
+              verbose: true
+    "#})?;
+
+    // In orphan project, files are "consumed" and not processed again in parent projects
+    cmd_snapshot!(context.filters(), context.run().arg("--all-files"), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    Running hooks for `src/backend`:
+    Show Files...............................................................Passed
+    - hook id: show-files
+    - duration: [TIME]
+
+      Processing 1 files
+        - test.py
+
+    Running hooks for `src`:
+    Show Files...........................................(no files to check)Skipped
+
+    Running hooks for `.`:
+    Show Files...............................................................Passed
+    - hook id: show-files
+    - duration: [TIME]
+
+      Processing 1 files
+        - test.py
+
+    ----- stderr -----
+    ");
+
+    // If hooks in orphan projects are not selected, files should be "consumed" as well
+    cmd_snapshot!(context.filters(), context.run().arg("--all-files").arg("--skip").arg("src/"), @r"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    Show Files...............................................................Passed
+    - hook id: show-files
+    - duration: [TIME]
+
+      Processing 1 files
+        - test.py
+
+    ----- stderr -----
+    ");
+
+    Ok(())
+}

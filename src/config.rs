@@ -622,6 +622,12 @@ pub(crate) struct Config {
     /// The minimum version of prek required to run this configuration.
     #[serde(deserialize_with = "deserialize_and_validate_minimum_version", default)]
     pub minimum_prek_version: Option<String>,
+    /// Set to true to isolate this project from parent configurations in workspace mode.
+    /// When true, files in this project are "consumed" by this project and will not be processed
+    /// by parent projects.
+    /// When false (default), files in subprojects are processed by both the subproject and
+    /// any parent projects that contain them.
+    pub orphan: Option<bool>,
 
     #[serde(skip_serializing)]
     #[serde(flatten)]
@@ -931,6 +937,7 @@ mod tests {
                 exclude: None,
                 fail_fast: None,
                 minimum_prek_version: None,
+                orphan: None,
                 _unused_keys: {},
             },
         )
@@ -1006,6 +1013,7 @@ mod tests {
                 exclude: None,
                 fail_fast: None,
                 minimum_prek_version: None,
+                orphan: None,
                 _unused_keys: {},
             },
         )
@@ -1106,6 +1114,7 @@ mod tests {
                 exclude: None,
                 fail_fast: None,
                 minimum_prek_version: None,
+                orphan: None,
                 _unused_keys: {},
             },
         )
@@ -1285,6 +1294,7 @@ mod tests {
                 exclude: None,
                 fail_fast: None,
                 minimum_prek_version: None,
+                orphan: None,
                 _unused_keys: {},
             },
         )
@@ -1421,6 +1431,7 @@ mod tests {
                 exclude: None,
                 fail_fast: None,
                 minimum_prek_version: None,
+                orphan: None,
                 _unused_keys: {},
             },
         )
@@ -1707,6 +1718,7 @@ mod tests {
             exclude: None,
             fail_fast: None,
             minimum_prek_version: None,
+            orphan: None,
             _unused_keys: {},
         }
         "#);
@@ -1793,6 +1805,7 @@ mod tests {
             exclude: None,
             fail_fast: None,
             minimum_prek_version: None,
+            orphan: None,
             _unused_keys: {
                 "local": Object {
                     "language": String("system"),
