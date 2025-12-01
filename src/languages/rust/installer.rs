@@ -22,6 +22,9 @@ pub(crate) struct RustResult {
     /// The rustup home directory used for this installation.
     /// None if using system rust without rustup.
     rustup_home: Option<PathBuf>,
+    /// The cargo home directory (where rustup and cargo binaries live).
+    /// None if using system rust without rustup.
+    cargo_home: Option<PathBuf>,
 }
 
 impl Display for RustResult {
@@ -50,12 +53,18 @@ static RUSTUP_BINARY_NAME: LazyLock<String> = LazyLock::new(|| {
 });
 
 impl RustResult {
-    fn new(path: PathBuf, from_system: bool, rustup_home: Option<PathBuf>) -> Self {
+    fn new(
+        path: PathBuf,
+        from_system: bool,
+        rustup_home: Option<PathBuf>,
+        cargo_home: Option<PathBuf>,
+    ) -> Self {
         Self {
             path,
             from_system,
             version: RustVersion::default(),
             rustup_home,
+            cargo_home,
         }
     }
 
@@ -75,11 +84,18 @@ impl RustResult {
         self.rustup_home.as_deref()
     }
 
+    pub(crate) fn cargo_home(&self) -> Option<&Path> {
+        self.cargo_home.as_deref()
+    }
+
     pub(crate) fn cmd(&self, summary: &str) -> Cmd {
         let mut cmd = Cmd::new(&self.path, summary);
         cmd.env(EnvVars::RUSTUP_AUTO_INSTALL, "0");
         if let Some(rustup_home) = &self.rustup_home {
             cmd.env(EnvVars::RUSTUP_HOME, rustup_home);
+        }
+        if let Some(cargo_home) = &self.cargo_home {
+            cmd.env(EnvVars::CARGO_HOME, cargo_home);
         }
         cmd
     }
@@ -272,11 +288,19 @@ impl RustInstaller {
                                 .unwrap_or_else(|| PathBuf::from(".cargo"))
                         });
 
-                    // Use our shared RUSTUP_HOME even with system rustup
-                    // This ensures toolchains are installed in a consistent location
+                    // Get the system's RUSTUP_HOME (not our shared one)
+                    // This is typically ~/.rustup or from RUSTUP_HOME env var
+                    let rustup_home = EnvVars::var_os(EnvVars::RUSTUP_HOME)
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| {
+                            EnvVars::var_os(EnvVars::HOME)
+                                .map(|h| PathBuf::from(h).join(".rustup"))
+                                .unwrap_or_else(|| PathBuf::from(".rustup"))
+                        });
+
                     return Ok(Some(RustupInfo {
                         bin: rustup_path,
-                        home: self.shared_rustup_home(),
+                        home: rustup_home,
                         cargo_home,
                         from_system: true,
                     }));
@@ -385,9 +409,14 @@ impl RustInstaller {
         // Return the result - use the rustc proxy which will delegate to the correct toolchain
         let rustc_path = rustup.rustc_proxy_path();
 
-        RustResult::new(rustc_path, false, Some(rustup.home.clone()))
-            .fill_version_with_toolchain(&toolchain)
-            .await
+        RustResult::new(
+            rustc_path,
+            false,
+            Some(rustup.home.clone()),
+            Some(rustup.cargo_home.clone()),
+        )
+        .fill_version_with_toolchain(&toolchain)
+        .await
     }
 
     /// Find an installed toolchain that matches the request.
@@ -440,7 +469,12 @@ impl RustInstaller {
                 trace!(name = %name, "Found matching installed toolchain");
                 // Use the proxy path, not the direct toolchain path
                 let rustc_path = rustup.rustc_proxy_path();
-                let result = RustResult::new(rustc_path, false, Some(rustup.home.clone()));
+                let result = RustResult::new(
+                    rustc_path,
+                    false,
+                    Some(rustup.home.clone()),
+                    Some(rustup.cargo_home.clone()),
+                );
 
                 return match result.fill_version_with_toolchain(&name).await {
                     Ok(result) => Ok(Some(result)),
@@ -471,7 +505,7 @@ impl RustInstaller {
                 continue;
             }
 
-            match RustResult::new(rust_path.clone(), true, None)
+            match RustResult::new(rust_path.clone(), true, None, None)
                 .fill_version()
                 .await
             {

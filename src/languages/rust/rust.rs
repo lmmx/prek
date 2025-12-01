@@ -129,9 +129,12 @@ impl LanguageImpl for Rust {
         info.with_toolchain(rust.bin().to_path_buf())
             .with_language_version(rust.version().deref().clone());
 
-        // Store the rustup home if using managed rustup
+        // Store the rustup home and cargo home if using managed rustup
         if let Some(rustup_home) = rust.rustup_home() {
             info.with_extra("rustup_home", &rustup_home.to_string_lossy());
+        }
+        if let Some(cargo_home) = rust.cargo_home() {
+            info.with_extra("cargo_home", &cargo_home.to_string_lossy());
         }
 
         // Store the channel name for cache matching
@@ -338,6 +341,10 @@ impl LanguageImpl for Rust {
         // Set RUSTUP_HOME if we have it stored
         if let Some(rustup_home) = info.get_extra("rustup_home") {
             rust_envs.push((EnvVars::RUSTUP_HOME, rustup_home.clone()));
+        }
+        // Set CARGO_HOME if we have it stored
+        if let Some(cargo_home) = info.get_extra("cargo_home") {
+            rust_envs.push((EnvVars::CARGO_HOME, cargo_home.clone()));
         }
 
         // Set toolchain
