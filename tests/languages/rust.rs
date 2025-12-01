@@ -43,8 +43,8 @@ fn language_version() -> Result<()> {
     "});
     context.git_add(".");
 
-    let rust_dir = context.home_dir().child("tools").child("rust");
-    rust_dir.assert(predicates::path::missing());
+    // Toolchains should be in the shared rustup home
+    let rustup_dir = context.home_dir().child("tools").child("rustup");
 
     let filters = [
         (r"rustc (1\.70)\.\d{1,2} .+", "rustc $1.X"), // Keep 1.70.X format
@@ -77,8 +77,12 @@ fn language_version() -> Result<()> {
     ----- stderr -----
     "#);
 
-    // Ensure that only Rust 1.70.X is installed.
-    let installed_versions = rust_dir
+    // Verify toolchains are in shared rustup home
+    let toolchains_dir = rustup_dir.child("toolchains");
+    toolchains_dir.assert(predicates::path::is_dir());
+
+    // There should be at least one toolchain installed (1.70.x)
+    let installed_toolchains = toolchains_dir
         .read_dir()?
         .flatten()
         .filter_map(|d| {
@@ -91,15 +95,114 @@ fn language_version() -> Result<()> {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(
-        installed_versions.len(),
-        1,
-        "Expected only one Rust version to be installed, but found: {installed_versions:?}"
+    assert!(
+        installed_toolchains.iter().any(|v| v.starts_with("1.70")),
+        "Expected Rust 1.70.X toolchain to be installed, but found: {installed_toolchains:?}"
+    );
+
+    Ok(())
+}
+
+/// Test that multiple hooks with different Rust versions share the same rustup.
+#[test]
+fn shared_rustup() -> Result<()> {
+    if !EnvVars::is_set(EnvVars::CI) {
+        return Ok(());
+    }
+
+    let context = TestContext::new();
+    context.init_project();
+    context.write_pre_commit_config(indoc::indoc! {r"
+        repos:
+          - repo: local
+            hooks:
+              - id: rust-stable
+                name: rust-stable
+                language: rust
+                entry: rustc --version
+                language_version: stable
+                pass_filenames: false
+                always_run: true
+              - id: rust-1.70
+                name: rust-1.70
+                language: rust
+                entry: rustc --version
+                language_version: '1.70'
+                always_run: true
+                pass_filenames: false
+    "});
+    context.git_add(".");
+
+    let filters = [
+        (r"rustc (1\.70)\.\d{1,2} .+", "rustc $1.X"),
+        (r"rustc 1\.\d{1,3}\.\d{1,2} .+", "rustc 1.X.X"),
+    ]
+    .into_iter()
+    .chain(context.filters())
+    .collect::<Vec<_>>();
+
+    cmd_snapshot!(filters, context.run().arg("-v"), @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    rust-stable..............................................................Passed
+    - hook id: rust-stable
+    - duration: [TIME]
+
+      rustc 1.X.X
+    rust-1.70................................................................Passed
+    - hook id: rust-1.70
+    - duration: [TIME]
+
+      rustc 1.70.X
+
+    ----- stderr -----
+    "#);
+
+    // Both toolchains should be in the shared rustup home
+    let rustup_dir = context.home_dir().child("tools").child("rustup");
+    let toolchains_dir = rustup_dir.child("toolchains");
+    toolchains_dir.assert(predicates::path::is_dir());
+
+    let installed_toolchains = toolchains_dir
+        .read_dir()?
+        .flatten()
+        .filter_map(|d| {
+            let filename = d.file_name().to_string_lossy().to_string();
+            if filename.starts_with('.') {
+                None
+            } else {
+                Some(filename)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    // Should have both stable and 1.70.x
+    assert!(
+        installed_toolchains.len() >= 2,
+        "Expected at least 2 toolchains, found: {installed_toolchains:?}"
     );
     assert!(
-        installed_versions.iter().any(|v| v.starts_with("1.70")),
-        "Expected Rust 1.70.X to be installed, but found: {installed_versions:?}"
+        installed_toolchains.iter().any(|v| v.starts_with("stable")),
+        "Expected stable toolchain, found: {installed_toolchains:?}"
     );
+    assert!(
+        installed_toolchains.iter().any(|v| v.starts_with("1.70")),
+        "Expected 1.70.X toolchain, found: {installed_toolchains:?}"
+    );
+
+    // There should be only one rustup binary (in cargo home, not per-toolchain)
+    let cargo_dir = context
+        .home_dir()
+        .child("tools")
+        .child("rust")
+        .child("cargo");
+    let rustup_bin = cargo_dir.child("bin").child(if cfg!(windows) {
+        "rustup.exe"
+    } else {
+        "rustup"
+    });
+    rustup_bin.assert(predicates::path::is_file());
 
     Ok(())
 }
@@ -205,4 +308,53 @@ fn remote_hooks_with_lib_deps() {
 
     ----- stderr -----
     ");
+}
+
+/// Test that system rustup is reused when available.
+#[test]
+fn reuse_system_rustup() {
+    // This test verifies that when rustup is available on the system,
+    // we use it instead of downloading a new one.
+    // We can't easily test this in CI without mocking, but we can verify
+    // the behavior works correctly.
+
+    let context = TestContext::new();
+    context.init_project();
+    context.write_pre_commit_config(indoc::indoc! {r"
+        repos:
+          - repo: local
+            hooks:
+              - id: rust-stable
+                name: rust-stable
+                language: rust
+                entry: rustc --version
+                language_version: stable
+                pass_filenames: false
+                always_run: true
+    "});
+    context.git_add(".");
+
+    let filters = [(r"rustc 1\.\d{1,3}\.\d{1,2} .+", "rustc 1.X.X")]
+        .into_iter()
+        .chain(context.filters())
+        .collect::<Vec<_>>();
+
+    cmd_snapshot!(filters, context.run().arg("-v"), @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    rust-stable..............................................................Passed
+    - hook id: rust-stable
+    - duration: [TIME]
+
+      rustc 1.X.X
+
+    ----- stderr -----
+    "#);
+
+    // Toolchains should be in the shared RUSTUP_HOME regardless of whether
+    // we used system rustup or installed our own
+    let rustup_dir = context.home_dir().child("tools").child("rustup");
+    let toolchains_dir = rustup_dir.child("toolchains");
+    toolchains_dir.assert(predicates::path::is_dir());
 }

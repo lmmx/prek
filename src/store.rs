@@ -207,6 +207,7 @@ pub(crate) enum ToolBucket {
     Go,
     Ruby,
     Rust,
+    Rustup,
 }
 
 impl ToolBucket {
@@ -217,6 +218,7 @@ impl ToolBucket {
             ToolBucket::Python => "python",
             ToolBucket::Ruby => "ruby",
             ToolBucket::Rust => "rust",
+            ToolBucket::Rustup => "rustup",
             ToolBucket::Uv => "uv",
         }
     }

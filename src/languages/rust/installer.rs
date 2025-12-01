@@ -19,6 +19,9 @@ pub(crate) struct RustResult {
     path: PathBuf,
     version: RustVersion,
     from_system: bool,
+    /// The rustup home directory used for this installation.
+    /// None if using system rust without rustup.
+    rustup_home: Option<PathBuf>,
 }
 
 impl Display for RustResult {
@@ -37,18 +40,28 @@ static RUST_BINARY_NAME: LazyLock<String> = LazyLock::new(|| {
     }
 });
 
+/// Override the Rustup binary name for testing.
+static RUSTUP_BINARY_NAME: LazyLock<String> = LazyLock::new(|| {
+    if let Ok(name) = EnvVars::var(EnvVars::PREK_INTERNAL__RUSTUP_BINARY_NAME) {
+        name
+    } else {
+        "rustup".to_string()
+    }
+});
+
 impl RustResult {
-    fn from_executable(path: PathBuf, from_system: bool) -> Self {
+    fn new(path: PathBuf, from_system: bool, rustup_home: Option<PathBuf>) -> Self {
         Self {
             path,
             from_system,
             version: RustVersion::default(),
+            rustup_home,
         }
     }
 
-    pub(crate) fn from_dir(dir: &Path, from_system: bool) -> Self {
+    pub(crate) fn from_dir(dir: &Path, from_system: bool, rustup_home: Option<PathBuf>) -> Self {
         let rustc = bin_dir(dir).join("rustc").with_extension(EXE_EXTENSION);
-        Self::from_executable(rustc, from_system)
+        Self::new(rustc, from_system, rustup_home)
     }
 
     pub(crate) fn bin(&self) -> &Path {
@@ -63,9 +76,16 @@ impl RustResult {
         self.from_system
     }
 
+    pub(crate) fn rustup_home(&self) -> Option<&Path> {
+        self.rustup_home.as_deref()
+    }
+
     pub(crate) fn cmd(&self, summary: &str) -> Cmd {
         let mut cmd = Cmd::new(&self.path, summary);
         cmd.env(EnvVars::RUSTUP_AUTO_INSTALL, "0");
+        if let Some(rustup_home) = &self.rustup_home {
+            cmd.env(EnvVars::RUSTUP_HOME, rustup_home);
+        }
         cmd
     }
 
@@ -95,19 +115,12 @@ impl RustResult {
         Ok(self)
     }
 
-    pub(crate) async fn fill_version_with_toolchain(
-        mut self,
-        toolchain: &str,
-        rustup_home: &Path,
-    ) -> Result<Self> {
-        let output = self
-            .cmd("rustc version")
-            .arg("--version")
-            .env(EnvVars::RUSTUP_TOOLCHAIN, toolchain)
-            .env(EnvVars::RUSTUP_HOME, rustup_home)
-            .check(true)
-            .output()
-            .await?;
+    pub(crate) async fn fill_version_with_toolchain(mut self, toolchain: &str) -> Result<Self> {
+        let mut cmd = self.cmd("rustc version");
+        cmd.arg("--version")
+            .env(EnvVars::RUSTUP_TOOLCHAIN, toolchain);
+
+        let output = cmd.check(true).output().await?;
 
         // e.g. "rustc 1.70.0 (90c541806 2023-05-31)"
         let version_str = str::from_utf8(&output.stdout)?;
@@ -122,13 +135,48 @@ impl RustResult {
     }
 }
 
+/// Information about a rustup installation.
+#[derive(Debug)]
+pub(crate) struct RustupInfo {
+    /// Path to the rustup binary.
+    pub(crate) bin: PathBuf,
+    /// `RUSTUP_HOME` directory.
+    pub(crate) home: PathBuf,
+    /// Whether this is a system rustup installation.
+    pub(crate) from_system: bool,
+}
+
+impl RustupInfo {
+    pub(crate) fn cmd(&self, summary: &str) -> Cmd {
+        let mut cmd = Cmd::new(&self.bin, summary);
+        cmd.env(EnvVars::RUSTUP_HOME, &self.home);
+        cmd.env(EnvVars::RUSTUP_AUTO_INSTALL, "0");
+        cmd
+    }
+}
+
 pub(crate) struct RustInstaller {
+    /// Root directory for Rust tools: `$PREK_HOME/tools/rust`
     root: PathBuf,
 }
 
 impl RustInstaller {
     pub(crate) fn new(root: PathBuf) -> Self {
         Self { root }
+    }
+
+    /// Returns the shared `RUSTUP_HOME` directory: `$PREK_HOME/tools/rustup`
+    fn shared_rustup_home(&self) -> PathBuf {
+        // root is $PREK_HOME/tools/rust, so parent is $PREK_HOME/tools
+        self.root
+            .parent()
+            .expect("rust root should have parent")
+            .join("rustup")
+    }
+
+    /// Returns the `CARGO_HOME` directory for managed rustup: `$PREK_HOME/tools/rust/cargo`
+    fn managed_cargo_home(&self) -> PathBuf {
+        self.root.join("cargo")
     }
 
     pub(crate) async fn install(
@@ -140,96 +188,250 @@ impl RustInstaller {
         fs_err::tokio::create_dir_all(&self.root).await?;
         let _lock = LockedFile::acquire(self.root.join(".lock"), "rust").await?;
 
-        // Check cache first
-        if let Ok(rust) = self.find_installed(request) {
-            trace!(%rust, "Found installed rust");
-            let toolchain = rust
-                .bin()
-                .parent()
-                .and_then(|p| p.parent())
-                .and_then(|p| p.file_name())
-                .and_then(|n| n.to_str())
-                .map(ToString::to_string)
-                .context("Failed to extract toolchain name")?;
-            let rustup_home = rustup_home_dir(
-                rust.bin()
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .context("Failed to get rust dir")?,
-            );
-            return rust
-                .fill_version_with_toolchain(&toolchain, &rustup_home)
-                .await;
-        }
+        // First, try to find or install rustup
+        let rustup = self.find_or_install_rustup(allows_download).await?;
 
-        // Check system second
-        if let Some(rust) = self.find_system_rust(request).await? {
-            trace!(%rust, "Using system rust");
-            return Ok(rust);
-        }
-
-        if !allows_download {
-            anyhow::bail!("No suitable system Rust version found and downloads are disabled");
-        }
-
-        let toolchain = self.resolve_version(request).await?;
-        let target_dir = self.root.join(&toolchain);
-        install_rust_with_toolchain(&toolchain, &target_dir).await?;
-
-        let rustup_home = rustup_home_dir(&target_dir);
-        RustResult::from_dir(&target_dir, false)
-            .fill_version_with_toolchain(&toolchain, &rustup_home)
+        // Now find or install the requested toolchain
+        self.install_toolchain(&rustup, request, allows_download)
             .await
     }
 
-    fn find_installed(&self, request: &RustRequest) -> Result<RustResult> {
-        let mut installed = fs_err::read_dir(&self.root)
+    /// Find system rustup or install a managed one.
+    async fn find_or_install_rustup(&self, allows_download: bool) -> Result<RustupInfo> {
+        // Check for system rustup first
+        if let Some(rustup) = self.find_system_rustup().await? {
+            trace!(bin = %rustup.bin.display(), "Using system rustup");
+            return Ok(rustup);
+        }
+
+        // Check for already-installed managed rustup
+        let managed_cargo_home = self.managed_cargo_home();
+        let managed_rustup_bin = managed_cargo_home
+            .join("bin")
+            .join("rustup")
+            .with_extension(EXE_EXTENSION);
+
+        if managed_rustup_bin.exists() {
+            trace!(bin = %managed_rustup_bin.display(), "Using managed rustup");
+            return Ok(RustupInfo {
+                bin: managed_rustup_bin,
+                home: self.shared_rustup_home(),
+                from_system: false,
+            });
+        }
+
+        if !allows_download {
+            anyhow::bail!("No rustup found and downloads are disabled");
+        }
+
+        // Install rustup
+        self.install_rustup().await
+    }
+
+    /// Find system rustup installation.
+    async fn find_system_rustup(&self) -> Result<Option<RustupInfo>> {
+        let rustup_paths = match which::which_all(&*RUSTUP_BINARY_NAME) {
+            Ok(paths) => paths,
+            Err(e) => {
+                debug!("No rustup executables found in PATH: {}", e);
+                return Ok(None);
+            }
+        };
+
+        for rustup_path in rustup_paths {
+            // Verify it works by running `rustup --version`
+            let output = Cmd::new(&rustup_path, "rustup version check")
+                .arg("--version")
+                .check(false)
+                .output()
+                .await;
+
+            match output {
+                Ok(output) if output.status.success() => {
+                    // Use our shared RUSTUP_HOME even with system rustup
+                    // This ensures toolchains are installed in a consistent location
+                    return Ok(Some(RustupInfo {
+                        bin: rustup_path,
+                        home: self.shared_rustup_home(),
+                        from_system: true,
+                    }));
+                }
+                Ok(_) => {
+                    debug!(path = %rustup_path.display(), "System rustup check failed");
+                }
+                Err(e) => {
+                    debug!(path = %rustup_path.display(), error = %e, "Failed to run system rustup");
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Install rustup into our managed location.
+    async fn install_rustup(&self) -> Result<RustupInfo> {
+        let cargo_home = self.managed_cargo_home();
+        let rustup_home = self.shared_rustup_home();
+
+        fs_err::tokio::create_dir_all(&cargo_home).await?;
+        fs_err::tokio::create_dir_all(&rustup_home).await?;
+
+        // Download rustup-init to a temporary location
+        let rustup_init_dir = tempfile::tempdir()?;
+
+        let url = if cfg!(windows) {
+            "https://win.rustup.rs/x86_64"
+        } else {
+            "https://sh.rustup.rs"
+        };
+
+        let resp = crate::languages::REQWEST_CLIENT
+            .get(url)
+            .send()
+            .await
+            .context("Failed to download rustup-init")?;
+
+        if !resp.status().is_success() {
+            anyhow::bail!("Failed to download rustup-init: {}", resp.status());
+        }
+
+        let rustup_init = rustup_init_dir
+            .path()
+            .join("rustup-init")
+            .with_extension(EXE_EXTENSION);
+        fs_err::tokio::write(&rustup_init, resp.bytes().await?).await?;
+        make_executable(&rustup_init)?;
+
+        // Install rustup with no default toolchain
+        Cmd::new(&rustup_init, "install rustup")
+            .args([
+                "-y",
+                "--quiet",
+                "--no-modify-path",
+                "--default-toolchain",
+                "none",
+            ])
+            .env(EnvVars::CARGO_HOME, &cargo_home)
+            .env(EnvVars::RUSTUP_HOME, &rustup_home)
+            .check(true)
+            .output()
+            .await?;
+
+        let rustup_bin = cargo_home
+            .join("bin")
+            .join("rustup")
+            .with_extension(EXE_EXTENSION);
+
+        Ok(RustupInfo {
+            bin: rustup_bin,
+            home: rustup_home,
+            from_system: false,
+        })
+    }
+
+    /// Install the requested toolchain using rustup.
+    async fn install_toolchain(
+        &self,
+        rustup: &RustupInfo,
+        request: &RustRequest,
+        allows_download: bool,
+    ) -> Result<RustResult> {
+        // First check if we already have an installed toolchain that matches
+        if let Some(result) = self.find_installed_toolchain(rustup, request).await? {
+            trace!(%result, "Found installed toolchain matching request");
+            return Ok(result);
+        }
+
+        // For system-only requests, also check system rust not managed by our rustup
+        if !allows_download {
+            if let Some(rust) = self.find_system_rust(request).await? {
+                trace!(%rust, "Using system rust");
+                return Ok(rust);
+            }
+            anyhow::bail!("No suitable Rust version found and downloads are disabled");
+        }
+
+        // Resolve the toolchain name and install it
+        let toolchain = self.resolve_toolchain(request).await?;
+        self.install_toolchain_with_rustup(rustup, &toolchain)
+            .await?;
+
+        // Return the result
+        let toolchain_bin_dir = rustup.home.join("toolchains").join(&toolchain).join("bin");
+        let rustc_path = toolchain_bin_dir
+            .join("rustc")
+            .with_extension(EXE_EXTENSION);
+
+        RustResult::new(rustc_path, false, Some(rustup.home.clone()))
+            .fill_version_with_toolchain(&toolchain)
+            .await
+    }
+
+    /// Find an installed toolchain that matches the request.
+    async fn find_installed_toolchain(
+        &self,
+        rustup: &RustupInfo,
+        request: &RustRequest,
+    ) -> Result<Option<RustResult>> {
+        let toolchains_dir = rustup.home.join("toolchains");
+
+        if !toolchains_dir.exists() {
+            return Ok(None);
+        }
+
+        let installed = fs_err::read_dir(&toolchains_dir)
             .ok()
             .into_iter()
             .flatten()
             .filter_map(|entry| match entry {
                 Ok(entry) => Some(entry),
                 Err(e) => {
-                    warn!(?e, "Failed to read entry");
+                    warn!(?e, "Failed to read toolchain entry");
                     None
                 }
             })
             .filter(|entry| entry.file_type().is_ok_and(|f| f.is_dir()))
             .map(|entry| {
                 let dir_name = entry.file_name();
-                let dir_str = dir_name.to_string_lossy();
-
-                // Try to parse as version, or use as channel name
-                let version = RustVersion::from_str(&dir_str).ok();
-                (dir_str.to_string(), version, entry.path())
+                let dir_str = dir_name.to_string_lossy().to_string();
+                // Parse version from toolchain name (e.g., "1.70.0-x86_64-unknown-linux-gnu" -> "1.70.0")
+                let version_str = dir_str.split('-').next().unwrap_or(&dir_str);
+                let version = RustVersion::from_str(version_str).ok();
+                (dir_str, version, entry.path())
             })
             .sorted_unstable_by(|(_, a, _), (_, b, _)| {
-                // Sort by version if available, otherwise by name
                 match (a, b) {
-                    (Some(a), Some(b)) => b.cmp(a), // reverse for newest first
+                    (Some(a), Some(b)) => b.cmp(a), // newest first
                     _ => std::cmp::Ordering::Equal,
                 }
             });
 
-        installed
-            .find_map(|(name, version, path)| {
-                let matches = match (request, version) {
-                    (RustRequest::Channel(ch), _) => &name == ch,
-                    (_, Some(v)) => request.matches(&v, Some(&path)),
-                    _ => false,
-                };
+        for (name, version, path) in installed {
+            let matches = match (request, &version) {
+                (RustRequest::Channel(ch), _) => name.starts_with(ch),
+                (_, Some(v)) => request.matches(v, Some(&path)),
+                _ => false,
+            };
 
-                if matches {
-                    trace!(name = %name, "Found matching installed rust");
-                    Some(RustResult::from_dir(&path, false))
-                } else {
-                    trace!(name = %name, "Installed rust does not match request");
-                    None
-                }
-            })
-            .context("No installed rust version matches the request")
+            if matches {
+                trace!(name = %name, "Found matching installed toolchain");
+                let rustc_path = path.join("bin").join("rustc").with_extension(EXE_EXTENSION);
+                let result = RustResult::new(rustc_path, false, Some(rustup.home.clone()));
+
+                return match result.fill_version_with_toolchain(&name).await {
+                    Ok(result) => Ok(Some(result)),
+                    Err(e) => {
+                        warn!(?e, name = %name, "Failed to get version for installed toolchain");
+                        continue;
+                    }
+                };
+            }
+        }
+
+        Ok(None)
     }
 
+    /// Find system rust that's not managed by rustup (e.g., distro packages).
     async fn find_system_rust(&self, rust_request: &RustRequest) -> Result<Option<RustResult>> {
         let rust_paths = match which::which_all(&*RUST_BINARY_NAME) {
             Ok(paths) => paths,
@@ -240,23 +442,21 @@ impl RustInstaller {
         };
 
         for rust_path in rust_paths {
-            match RustResult::from_executable(rust_path, true)
+            // Skip rustc that's a rustup proxy (we handle those via rustup)
+            if is_rustup_proxy(&rust_path) {
+                continue;
+            }
+
+            match RustResult::new(rust_path.clone(), true, None)
                 .fill_version()
                 .await
             {
                 Ok(rust) => {
-                    // Check if this version matches the request
                     if rust_request.matches(&rust.version, Some(&rust.path)) {
-                        trace!(
-                            %rust,
-                            "Found matching system rust"
-                        );
+                        trace!(%rust, "Found matching system rust");
                         return Ok(Some(rust));
                     }
-                    trace!(
-                        %rust,
-                        "System rust does not match requested version"
-                    );
+                    trace!(%rust, "System rust does not match requested version");
                 }
                 Err(e) => {
                     warn!(?e, "Failed to get version for system rust");
@@ -271,7 +471,24 @@ impl RustInstaller {
         Ok(None)
     }
 
-    async fn resolve_version(&self, req: &RustRequest) -> Result<String> {
+    /// Install a toolchain using rustup.
+    async fn install_toolchain_with_rustup(
+        &self,
+        rustup: &RustupInfo,
+        toolchain: &str,
+    ) -> Result<()> {
+        rustup
+            .cmd("install toolchain")
+            .args(["toolchain", "install", "--no-self-update", toolchain])
+            .check(true)
+            .output()
+            .await?;
+
+        Ok(())
+    }
+
+    /// Resolve a version request to a toolchain name.
+    async fn resolve_toolchain(&self, req: &RustRequest) -> Result<String> {
         match req {
             RustRequest::Any => Ok("stable".to_string()),
             RustRequest::Channel(ch) => Ok(ch.clone()),
@@ -312,9 +529,30 @@ pub(crate) fn bin_dir(env_path: &Path) -> PathBuf {
     env_path.join("bin")
 }
 
-/// Returns the path to the `RUSTUP_HOME` directory within a managed rust installation.
-pub(crate) fn rustup_home_dir(env_path: &Path) -> PathBuf {
-    env_path.join("rustup")
+/// Check if a rustc binary is a rustup proxy.
+fn is_rustup_proxy(rustc_path: &Path) -> bool {
+    // Rustup proxies are typically in ~/.cargo/bin or similar
+    // and are small shim executables
+    if let Some(parent) = rustc_path.parent() {
+        if let Some(parent_name) = parent.file_name() {
+            if parent_name == "bin" {
+                if let Some(grandparent) = parent.parent() {
+                    if let Some(gp_name) = grandparent.file_name() {
+                        // Check if it's in a cargo home directory
+                        if gp_name == ".cargo" || gp_name == "cargo" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Also check if rustup is in the same directory
+    rustc_path
+        .parent()
+        .map(|p| p.join("rustup").with_extension(EXE_EXTENSION).exists())
+        .unwrap_or(false)
 }
 
 #[cfg(unix)]
@@ -332,70 +570,5 @@ fn make_executable(filename: impl AsRef<Path>) -> std::io::Result<()> {
 #[cfg(not(unix))]
 #[allow(clippy::unnecessary_wraps)]
 fn make_executable(_filename: impl AsRef<Path>) -> std::io::Result<()> {
-    Ok(())
-}
-
-async fn install_rust_with_toolchain(toolchain: &str, target_dir: &Path) -> Result<()> {
-    // Use a persistent RUSTUP_HOME within the target directory so toolchains are preserved
-    let rustup_home = rustup_home_dir(target_dir);
-    fs_err::tokio::create_dir_all(&rustup_home).await?;
-
-    let rustup_bin = bin_dir(target_dir)
-        .join("rustup")
-        .with_extension(EXE_EXTENSION);
-
-    // Check if rustup already exists at the expected location
-    if !rustup_bin.exists() {
-        // Download rustup-init to a temporary location
-        let rustup_init_dir = tempfile::tempdir()?;
-
-        let url = if cfg!(windows) {
-            "https://win.rustup.rs/x86_64"
-        } else {
-            "https://sh.rustup.rs"
-        };
-
-        let resp = crate::languages::REQWEST_CLIENT
-            .get(url)
-            .send()
-            .await
-            .context("Failed to download rustup-init")?;
-
-        if !resp.status().is_success() {
-            anyhow::bail!("Failed to download rustup-init: {}", resp.status());
-        }
-
-        let rustup_init = rustup_init_dir
-            .path()
-            .join("rustup-init")
-            .with_extension(EXE_EXTENSION);
-        fs_err::tokio::write(&rustup_init, resp.bytes().await?).await?;
-        make_executable(&rustup_init)?;
-
-        // Install rustup into CARGO_HOME/bin, with RUSTUP_HOME in the persistent location
-        Cmd::new(&rustup_init, "install rustup")
-            .args([
-                "-y",
-                "--quiet",
-                "--no-modify-path",
-                "--default-toolchain",
-                "none",
-            ])
-            .env(EnvVars::CARGO_HOME, target_dir)
-            .env(EnvVars::RUSTUP_HOME, &rustup_home)
-            .check(true)
-            .output()
-            .await?;
-    }
-
-    // Install the requested toolchain into our persistent RUSTUP_HOME
-    Cmd::new(&rustup_bin, "install toolchain")
-        .args(["toolchain", "install", "--no-self-update", toolchain])
-        .env(EnvVars::CARGO_HOME, target_dir)
-        .env(EnvVars::RUSTUP_HOME, &rustup_home)
-        .check(true)
-        .output()
-        .await?;
-
     Ok(())
 }
