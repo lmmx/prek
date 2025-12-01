@@ -79,6 +79,7 @@ impl LanguageImpl for Golang {
                     .env(EnvVars::GOTOOLCHAIN, "local")
                     .env(EnvVars::GOROOT, go_root)
                     .env(EnvVars::GOBIN, bin_dir(&info.env_path))
+                    .env(EnvVars::GOFLAGS, "-modcacherw")
                     .env(EnvVars::GOPATH, &go_cache);
                 cmd
             }
@@ -147,6 +148,7 @@ impl LanguageImpl for Golang {
                 .env(EnvVars::PATH, &new_path)
                 .env(EnvVars::GOTOOLCHAIN, "local")
                 .env(EnvVars::GOBIN, &go_bin)
+                .env(EnvVars::GOFLAGS, "-modcacherw")
                 .envs(go_envs.iter().copied())
                 .args(&hook.args)
                 .args(batch)
