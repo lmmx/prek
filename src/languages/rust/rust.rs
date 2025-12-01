@@ -328,7 +328,9 @@ impl LanguageImpl for Rust {
         let info = hook.install_info().expect("Rust hook must be installed");
 
         let rust_bin = bin_dir(env_dir);
-        let rustc_bin = info.toolchain.parent().expect("Rust bin should exist");
+
+        // The toolchain path points to the rustc proxy in CARGO_HOME/bin
+        let rustc_bin_dir = info.toolchain.parent().expect("Rust bin should exist");
 
         // Build environment variables for rustup
         let mut rust_envs: Vec<(&str, String)> = vec![];
@@ -341,7 +343,8 @@ impl LanguageImpl for Rust {
         // Set toolchain
         rust_envs.push((EnvVars::RUSTUP_TOOLCHAIN, info.language_version.to_string()));
 
-        let new_path = prepend_paths(&[&rust_bin, rustc_bin]).context("Failed to join PATH")?;
+        // Include the cargo home bin directory in PATH so rustc/cargo proxies are found
+        let new_path = prepend_paths(&[&rust_bin, rustc_bin_dir]).context("Failed to join PATH")?;
 
         let entry = hook.entry.resolve(Some(&new_path))?;
         let run = async |batch: &[&Path]| {

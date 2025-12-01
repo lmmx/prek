@@ -59,11 +59,6 @@ impl RustResult {
         }
     }
 
-    pub(crate) fn from_dir(dir: &Path, from_system: bool, rustup_home: Option<PathBuf>) -> Self {
-        let rustc = bin_dir(dir).join("rustc").with_extension(EXE_EXTENSION);
-        Self::new(rustc, from_system, rustup_home)
-    }
-
     pub(crate) fn bin(&self) -> &Path {
         &self.path
     }
@@ -142,7 +137,10 @@ pub(crate) struct RustupInfo {
     pub(crate) bin: PathBuf,
     /// `RUSTUP_HOME` directory.
     pub(crate) home: PathBuf,
+    /// `CARGO_HOME` directory (where rustup and cargo binaries live).
+    pub(crate) cargo_home: PathBuf,
     /// Whether this is a system rustup installation.
+    #[allow(dead_code)]
     pub(crate) from_system: bool,
 }
 
@@ -150,8 +148,20 @@ impl RustupInfo {
     pub(crate) fn cmd(&self, summary: &str) -> Cmd {
         let mut cmd = Cmd::new(&self.bin, summary);
         cmd.env(EnvVars::RUSTUP_HOME, &self.home);
+        cmd.env(EnvVars::CARGO_HOME, &self.cargo_home);
         cmd.env(EnvVars::RUSTUP_AUTO_INSTALL, "0");
         cmd
+    }
+
+    /// Get the path to rustc proxy.
+    ///
+    /// This returns the rustc in `CARGO_HOME/bin` which is a rustup proxy,
+    /// which will delegate to the correct toolchain when `RUSTUP_TOOLCHAIN` is set.
+    pub(crate) fn rustc_proxy_path(&self) -> PathBuf {
+        self.cargo_home
+            .join("bin")
+            .join("rustc")
+            .with_extension(EXE_EXTENSION)
     }
 }
 
@@ -216,6 +226,7 @@ impl RustInstaller {
             return Ok(RustupInfo {
                 bin: managed_rustup_bin,
                 home: self.shared_rustup_home(),
+                cargo_home: managed_cargo_home,
                 from_system: false,
             });
         }
@@ -248,11 +259,25 @@ impl RustInstaller {
 
             match output {
                 Ok(output) if output.status.success() => {
+                    // Get the cargo home from the rustup path
+                    // rustup is typically at $CARGO_HOME/bin/rustup
+                    let cargo_home = rustup_path
+                        .parent() // bin/
+                        .and_then(|p| p.parent()) // $CARGO_HOME
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(|| {
+                            // Fallback to ~/.cargo
+                            EnvVars::var_os(EnvVars::HOME)
+                                .map(|h| PathBuf::from(h).join(".cargo"))
+                                .unwrap_or_else(|| PathBuf::from(".cargo"))
+                        });
+
                     // Use our shared RUSTUP_HOME even with system rustup
                     // This ensures toolchains are installed in a consistent location
                     return Ok(Some(RustupInfo {
                         bin: rustup_path,
                         home: self.shared_rustup_home(),
+                        cargo_home,
                         from_system: true,
                     }));
                 }
@@ -325,6 +350,7 @@ impl RustInstaller {
         Ok(RustupInfo {
             bin: rustup_bin,
             home: rustup_home,
+            cargo_home,
             from_system: false,
         })
     }
@@ -356,11 +382,8 @@ impl RustInstaller {
         self.install_toolchain_with_rustup(rustup, &toolchain)
             .await?;
 
-        // Return the result
-        let toolchain_bin_dir = rustup.home.join("toolchains").join(&toolchain).join("bin");
-        let rustc_path = toolchain_bin_dir
-            .join("rustc")
-            .with_extension(EXE_EXTENSION);
+        // Return the result - use the rustc proxy which will delegate to the correct toolchain
+        let rustc_path = rustup.rustc_proxy_path();
 
         RustResult::new(rustc_path, false, Some(rustup.home.clone()))
             .fill_version_with_toolchain(&toolchain)
@@ -415,7 +438,8 @@ impl RustInstaller {
 
             if matches {
                 trace!(name = %name, "Found matching installed toolchain");
-                let rustc_path = path.join("bin").join("rustc").with_extension(EXE_EXTENSION);
+                // Use the proxy path, not the direct toolchain path
+                let rustc_path = rustup.rustc_proxy_path();
                 let result = RustResult::new(rustc_path, false, Some(rustup.home.clone()));
 
                 return match result.fill_version_with_toolchain(&name).await {
