@@ -112,6 +112,7 @@ fs-err = { version = "3.1.0" }
 assert_cmd = { version = "2.0.16", features = ["color"] }
 assert_fs = { version = "1.1.2" }
 etcetera = { version = "0.11.0" }
+figment = { version = "0.10.19", features = ["test"] }
 insta = { version = "1.40.0", features = ["filters"] }
 insta-cmd = { version = "0.6.0" }
 markdown = { version = "1.0.0" }

@@ -60,7 +60,7 @@ prek install [OPTIONS] [HOOK|PROJECT]...
 <dl class="cli-reference"><dt id="prek-install--allow-missing-config"><a href="#prek-install--allow-missing-config"><code>--allow-missing-config</code></a></dt><dd><p>Allow a missing <code>pre-commit</code> configuration file</p>
 </dd><dt id="prek-install--cd"><a href="#prek-install--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-install--color"><a href="#prek-install--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -127,7 +127,7 @@ prek install-hooks [OPTIONS] [HOOK|PROJECT]...
 
 <dl class="cli-reference"><dt id="prek-install-hooks--cd"><a href="#prek-install-hooks--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-install-hooks--color"><a href="#prek-install-hooks--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -191,7 +191,7 @@ prek run [OPTIONS] [HOOK|PROJECT]...
 <dl class="cli-reference"><dt id="prek-run--all-files"><a href="#prek-run--all-files"><code>--all-files</code></a>, <code>-a</code></dt><dd><p>Run on all files in the repo</p>
 </dd><dt id="prek-run--cd"><a href="#prek-run--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-run--color"><a href="#prek-run--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -277,7 +277,7 @@ prek list [OPTIONS] [HOOK|PROJECT]...
 
 <dl class="cli-reference"><dt id="prek-list--cd"><a href="#prek-list--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-list--color"><a href="#prek-list--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -364,7 +364,7 @@ prek uninstall [OPTIONS]
 
 <dl class="cli-reference"><dt id="prek-uninstall--cd"><a href="#prek-uninstall--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-uninstall--color"><a href="#prek-uninstall--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -400,7 +400,7 @@ prek validate-config [OPTIONS] [CONFIG]...
 
 <dl class="cli-reference"><dt id="prek-validate-config--cd"><a href="#prek-validate-config--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-validate-config--color"><a href="#prek-validate-config--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -436,7 +436,7 @@ prek validate-manifest [OPTIONS] [MANIFEST]...
 
 <dl class="cli-reference"><dt id="prek-validate-manifest--cd"><a href="#prek-validate-manifest--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-validate-manifest--color"><a href="#prek-validate-manifest--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -467,7 +467,7 @@ prek sample-config [OPTIONS]
 
 <dl class="cli-reference"><dt id="prek-sample-config--cd"><a href="#prek-sample-config--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-sample-config--color"><a href="#prek-sample-config--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -500,7 +500,7 @@ prek auto-update [OPTIONS]
 <dl class="cli-reference"><dt id="prek-auto-update--bleeding-edge"><a href="#prek-auto-update--bleeding-edge"><code>--bleeding-edge</code></a></dt><dd><p>Update to the bleeding edge of the default branch instead of the latest tagged version</p>
 </dd><dt id="prek-auto-update--cd"><a href="#prek-auto-update--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-auto-update--color"><a href="#prek-auto-update--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -553,7 +553,7 @@ prek cache dir [OPTIONS]
 
 <dl class="cli-reference"><dt id="prek-cache-dir--cd"><a href="#prek-cache-dir--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-cache-dir--color"><a href="#prek-cache-dir--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -584,7 +584,7 @@ prek cache gc [OPTIONS]
 
 <dl class="cli-reference"><dt id="prek-cache-gc--cd"><a href="#prek-cache-gc--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-cache-gc--color"><a href="#prek-cache-gc--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -615,7 +615,7 @@ prek cache clean [OPTIONS]
 
 <dl class="cli-reference"><dt id="prek-cache-clean--cd"><a href="#prek-cache-clean--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-cache-clean--color"><a href="#prek-cache-clean--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -683,7 +683,7 @@ prek init-template-dir [OPTIONS] <DIRECTORY>
 
 <dl class="cli-reference"><dt id="prek-init-template-dir--cd"><a href="#prek-init-template-dir--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-init-template-dir--color"><a href="#prek-init-template-dir--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -748,7 +748,7 @@ prek try-repo [OPTIONS] <REPO> [HOOK|PROJECT]...
 <dl class="cli-reference"><dt id="prek-try-repo--all-files"><a href="#prek-try-repo--all-files"><code>--all-files</code></a>, <code>-a</code></dt><dd><p>Run on all files in the repo</p>
 </dd><dt id="prek-try-repo--cd"><a href="#prek-try-repo--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-try-repo--color"><a href="#prek-try-repo--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
@@ -837,7 +837,7 @@ prek self update [OPTIONS] [TARGET_VERSION]
 
 <dl class="cli-reference"><dt id="prek-self-update--cd"><a href="#prek-self-update--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-self-update--color"><a href="#prek-self-update--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
