@@ -10,8 +10,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, RwLock};
 
-use figment::providers::{Env, Serialized};
+use figment::providers::Serialized;
 use figment::{Figment, Profile, Provider, value::Map};
+use prek_consts::env_vars::EnvVars;
 use serde::{Deserialize, Serialize};
 
 /// Global settings instance, initialized lazily.
@@ -162,6 +163,75 @@ impl Provider for PyProjectProvider {
     }
 }
 
+/// Custom provider for PREK_* environment variables that handles
+/// special cases like comma-separated lists and boolean values.
+struct PrekEnvProvider;
+
+impl Provider for PrekEnvProvider {
+    fn metadata(&self) -> figment::Metadata {
+        figment::Metadata::named("PREK_* environment variables")
+    }
+
+    fn data(&self) -> Result<Map<Profile, figment::value::Dict>, figment::Error> {
+        use figment::value::{Dict, Value};
+
+        let mut dict = Dict::new();
+
+        // PREK_SKIP or SKIP - comma-separated list
+        if let Some(val) = EnvVars::var(EnvVars::PREK_SKIP)
+            .ok()
+            .or_else(|| EnvVars::var(EnvVars::SKIP).ok())
+        {
+            let items: Vec<Value> = val
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(Value::from)
+                .collect();
+            dict.insert("skip".into(), Value::from(items));
+        }
+
+        // PREK_HOME or PRE_COMMIT_HOME (EnvVars::var handles the fallback)
+        if let Ok(val) = EnvVars::var(EnvVars::PREK_HOME) {
+            dict.insert("home".into(), Value::from(val));
+        }
+
+        if let Ok(val) = EnvVars::var(EnvVars::PREK_COLOR) {
+            dict.insert("color".into(), Value::from(val));
+        }
+
+        // PREK_ALLOW_NO_CONFIG - boolish values (EnvVars::var handles PRE_COMMIT fallback)
+        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_ALLOW_NO_CONFIG) {
+            dict.insert("allow-no-config".into(), Value::from(b));
+        }
+
+        // PREK_NO_CONCURRENCY - boolish values (EnvVars::var handles PRE_COMMIT fallback)
+        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_NO_CONCURRENCY) {
+            dict.insert("no-concurrency".into(), Value::from(b));
+        }
+
+        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_NO_FAST_PATH) {
+            dict.insert("no-fast-path".into(), Value::from(b));
+        }
+
+        if let Ok(val) = EnvVars::var(EnvVars::PREK_UV_SOURCE) {
+            dict.insert("uv-source".into(), Value::from(val));
+        }
+
+        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_NATIVE_TLS) {
+            dict.insert("native-tls".into(), Value::from(b));
+        }
+
+        if let Ok(val) = EnvVars::var(EnvVars::PREK_CONTAINER_RUNTIME) {
+            dict.insert("container-runtime".into(), Value::from(val));
+        }
+
+        let mut map = Map::new();
+        map.insert(Profile::Default, dict);
+        Ok(map)
+    }
+}
+
 impl Settings {
     /// Initialize settings from the given working directory.
     ///
@@ -169,13 +239,8 @@ impl Settings {
     /// If not called, settings will use the current directory when first accessed.
     pub fn init(working_dir: &Path) -> Result<(), figment::Error> {
         let settings = Self::discover(working_dir)?;
-
-        let mut guard = SETTINGS.write().expect("settings lock poisoned");
-        *guard = settings;
-
-        let mut init_guard = INITIALIZED.write().expect("initialized lock poisoned");
-        *init_guard = true;
-
+        *SETTINGS.write().expect("settings lock poisoned") = settings;
+        *INITIALIZED.write().expect("initialized lock poisoned") = true;
         Ok(())
     }
 
@@ -187,15 +252,9 @@ impl Settings {
         cli_overrides: CliOverrides,
     ) -> Result<(), figment::Error> {
         let figment = Self::build_figment(working_dir).merge(Serialized::defaults(cli_overrides));
-
         let settings: Settings = figment.extract()?;
-
-        let mut guard = SETTINGS.write().expect("settings lock poisoned");
-        *guard = settings;
-
-        let mut init_guard = INITIALIZED.write().expect("initialized lock poisoned");
-        *init_guard = true;
-
+        *SETTINGS.write().expect("settings lock poisoned") = settings;
+        *INITIALIZED.write().expect("initialized lock poisoned") = true;
         Ok(())
     }
 
@@ -214,9 +273,7 @@ impl Settings {
                 let _ = Self::init(&cwd);
             }
         }
-
-        let guard = SETTINGS.read().expect("settings lock poisoned");
-        guard.clone()
+        SETTINGS.read().expect("settings lock poisoned").clone()
     }
 
     /// Build the figment for the given working directory.
@@ -224,15 +281,8 @@ impl Settings {
         let mut figment = Figment::new()
             // Lowest precedence: built-in defaults
             .merge(Serialized::defaults(Settings::default()))
-            // Next: environment variables
-            .merge(
-                Env::prefixed("PREK_")
-                    .map(|key| {
-                        // Convert PREK_FOO_BAR to foo-bar for serde
-                        key.as_str().to_lowercase().replace('_', "-").into()
-                    })
-                    .split(","), // Allow comma-separated lists for `skip`
-            );
+            // Next: environment variables (custom provider for special handling)
+            .merge(PrekEnvProvider);
 
         // Walk up to find pyproject.toml
         let mut current = Some(working_dir);
@@ -349,7 +399,7 @@ color = "always"
     fn test_env_var_loading() {
         figment::Jail::expect_with(|jail| {
             jail.set_env("PREK_SKIP", "hook1,hook2");
-            jail.set_env("PREK_NO_CONCURRENCY", "true");
+            jail.set_env("PREK_NO_CONCURRENCY", "1");
             jail.set_env("PREK_COLOR", "never");
 
             let settings = Settings::discover(jail.directory())?;

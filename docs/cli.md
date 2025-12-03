@@ -646,7 +646,7 @@ prek cache size [OPTIONS]
 
 <dl class="cli-reference"><dt id="prek-cache-size--cd"><a href="#prek-cache-size--cd"><code>--cd</code></a>, <code>-C</code> <i>dir</i></dt><dd><p>Change to directory before running</p>
 </dd><dt id="prek-cache-size--color"><a href="#prek-cache-size--color"><code>--color</code></a> <i>color</i></dt><dd><p>Whether to use color in output</p>
-<p>May also be set with the <code>PREK_COLOR</code> environment variable.</p><p>[default: auto]</p><p>Possible values:</p>
+<p>Possible values:</p>
 <ul>
 <li><code>auto</code>:  Enables colored output only when the output is going to a terminal or TTY with support</li>
 <li><code>always</code>:  Enables colored output regardless of the detected environment</li>
