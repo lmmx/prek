@@ -151,8 +151,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
     // Initialize settings from all sources (env vars, pyproject.toml, CLI overrides)
-    Settings::init_with_cli(&working_dir, cli.globals.cli_overrides())
-        .context("Failed to load configuration")?;
+    Settings::init_with_cli(&working_dir, cli.globals.cli_overrides());
 
     let settings = Settings::get();
 

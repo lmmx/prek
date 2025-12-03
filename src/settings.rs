@@ -1,23 +1,20 @@
 //! Unified configuration settings for prek.
 //!
 //! Settings are resolved from multiple sources with the following precedence (highest to lowest):
-//! 1. CLI flags (handled by clap, merged separately)
+//! 1. CLI flags (merged via `CliOverrides`)
 //! 2. `pyproject.toml` `[tool.prek]` section
 //! 3. Environment variables (`PREK_*`)
 //! 4. Built-in defaults
-#![allow(clippy::result_large_err)]
 
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, RwLock};
 
-use figment::providers::Serialized;
-use figment::{Figment, Profile, Provider, value::Map};
 use prek_consts::env_vars::EnvVars;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 /// Global settings instance, initialized lazily.
 ///
-/// Call `Settings::init()` early in main to set the working directory,
+/// Call `Settings::init_with_cli()` early in main to set the working directory,
 /// or it will default to the current directory.
 static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| RwLock::new(Settings::default()));
 
@@ -25,45 +22,58 @@ static SETTINGS: LazyLock<RwLock<Settings>> = LazyLock::new(|| RwLock::new(Setti
 static INITIALIZED: LazyLock<RwLock<bool>> = LazyLock::new(|| RwLock::new(false));
 
 /// Prek configuration settings.
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Settings {
     /// Hook IDs to skip (equivalent to `PREK_SKIP`).
-    #[serde(default)]
     pub skip: Vec<String>,
-
     /// Override the prek data directory (equivalent to `PREK_HOME`).
     pub home: Option<PathBuf>,
-
     /// Control colored output: "auto", "always", or "never" (equivalent to `PREK_COLOR`).
     pub color: Option<ColorChoice>,
-
     /// Allow running without a `.pre-commit-config.yaml` (equivalent to `PREK_ALLOW_NO_CONFIG`).
-    #[serde(default)]
     pub allow_no_config: bool,
-
     /// Disable parallelism for installs and runs (equivalent to `PREK_NO_CONCURRENCY`).
-    #[serde(default)]
     pub no_concurrency: bool,
-
     /// Disable Rust-native built-in hooks (equivalent to `PREK_NO_FAST_PATH`).
-    #[serde(default)]
     pub no_fast_path: bool,
-
     /// Control how uv is installed (equivalent to `PREK_UV_SOURCE`).
     pub uv_source: Option<String>,
-
     /// Use system's trusted store instead of bundled roots (equivalent to `PREK_NATIVE_TLS`).
-    #[serde(default)]
     pub native_tls: bool,
-
     /// Container runtime to use: "auto", "docker", or "podman" (equivalent to `PREK_CONTAINER_RUNTIME`).
     pub container_runtime: Option<ContainerRuntime>,
 }
 
+/// Settings as parsed from pyproject.toml `[tool.prek]`
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+#[allow(clippy::struct_excessive_bools)]
+struct PyProjectSettings {
+    skip: Vec<String>,
+    home: Option<PathBuf>,
+    color: Option<ColorChoice>,
+    allow_no_config: bool,
+    no_concurrency: bool,
+    no_fast_path: bool,
+    uv_source: Option<String>,
+    native_tls: bool,
+    container_runtime: Option<ContainerRuntime>,
+}
+
+/// Wrapper to extract `[tool.prek]` from pyproject.toml
+#[derive(Debug, Deserialize)]
+struct PyProjectToml {
+    tool: Option<PyProjectTool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PyProjectTool {
+    prek: Option<PyProjectSettings>,
+}
+
 /// Color output choice.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum ColorChoice {
     /// Enables colored output only when the output is going to a terminal or TTY with support.
@@ -73,16 +83,6 @@ pub enum ColorChoice {
     Always,
     /// Disables colored output.
     Never,
-}
-
-impl From<ColorChoice> for anstream::ColorChoice {
-    fn from(value: ColorChoice) -> Self {
-        match value {
-            ColorChoice::Auto => Self::Auto,
-            ColorChoice::Always => Self::Always,
-            ColorChoice::Never => Self::Never,
-        }
-    }
 }
 
 impl std::fmt::Display for ColorChoice {
@@ -95,8 +95,30 @@ impl std::fmt::Display for ColorChoice {
     }
 }
 
+impl From<ColorChoice> for anstream::ColorChoice {
+    fn from(value: ColorChoice) -> Self {
+        match value {
+            ColorChoice::Auto => Self::Auto,
+            ColorChoice::Always => Self::Always,
+            ColorChoice::Never => Self::Never,
+        }
+    }
+}
+
+impl std::str::FromStr for ColorChoice {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "always" => Ok(Self::Always),
+            "never" => Ok(Self::Never),
+            _ => Err(format!("invalid color choice: {s}")),
+        }
+    }
+}
+
 /// Container runtime choice.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerRuntime {
     /// Auto-detect available runtime.
@@ -106,6 +128,18 @@ pub enum ContainerRuntime {
     Docker,
     /// Use Podman.
     Podman,
+}
+
+impl std::str::FromStr for ContainerRuntime {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "docker" => Ok(Self::Docker),
+            "podman" => Ok(Self::Podman),
+            _ => Err(format!("invalid container runtime: {s}")),
+        }
+    }
 }
 
 impl std::fmt::Display for ContainerRuntime {
@@ -118,144 +152,35 @@ impl std::fmt::Display for ContainerRuntime {
     }
 }
 
-/// Wrapper to extract `[tool.prek]` from pyproject.toml
-#[derive(Debug, Deserialize)]
-struct PyProjectToml {
-    tool: Option<PyProjectTool>,
+/// CLI overrides that take highest precedence.
+///
+/// This struct contains only the fields that can be set via CLI flags.
+/// Fields are all optional - `None` means "use value from other sources".
+#[derive(Copy, Debug, Clone, Default)]
+pub struct CliOverrides {
+    pub color: Option<ColorChoice>,
 }
 
-#[derive(Debug, Deserialize)]
-struct PyProjectTool {
-    prek: Option<Settings>,
-}
-
-/// Custom provider that extracts `[tool.prek]` from a TOML file
-struct PyProjectProvider {
-    path: PathBuf,
-}
-
-impl PyProjectProvider {
-    fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
-    }
-}
-
-impl Provider for PyProjectProvider {
-    fn metadata(&self) -> figment::Metadata {
-        figment::Metadata::named("pyproject.toml [tool.prek]")
-            .source(self.path.display().to_string())
+impl CliOverrides {
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    fn data(&self) -> Result<Map<Profile, figment::value::Dict>, figment::Error> {
-        let Ok(content) = std::fs::read_to_string(&self.path) else {
-            return Ok(Map::new());
-        };
-
-        let pyproject: PyProjectToml = match toml::from_str(&content) {
-            Ok(p) => p,
-            Err(_) => return Ok(Map::new()),
-        };
-
-        match pyproject.tool.and_then(|t| t.prek) {
-            Some(settings) => Serialized::defaults(settings).data(),
-            None => Ok(Map::new()),
-        }
-    }
-}
-
-/// Custom provider for PREK_* environment variables that handles
-/// special cases like comma-separated lists and boolean values.
-struct PrekEnvProvider;
-
-impl Provider for PrekEnvProvider {
-    fn metadata(&self) -> figment::Metadata {
-        figment::Metadata::named("PREK_* environment variables")
-    }
-
-    fn data(&self) -> Result<Map<Profile, figment::value::Dict>, figment::Error> {
-        use figment::value::{Dict, Value};
-
-        let mut dict = Dict::new();
-
-        // PREK_SKIP or SKIP - comma-separated list
-        if let Some(val) = EnvVars::var(EnvVars::PREK_SKIP)
-            .ok()
-            .or_else(|| EnvVars::var(EnvVars::SKIP).ok())
-        {
-            let items: Vec<Value> = val
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .map(Value::from)
-                .collect();
-            dict.insert("skip".into(), Value::from(items));
-        }
-
-        // PREK_HOME or PRE_COMMIT_HOME (EnvVars::var handles the fallback)
-        if let Ok(val) = EnvVars::var(EnvVars::PREK_HOME) {
-            dict.insert("home".into(), Value::from(val));
-        }
-
-        if let Ok(val) = EnvVars::var(EnvVars::PREK_COLOR) {
-            dict.insert("color".into(), Value::from(val));
-        }
-
-        // PREK_ALLOW_NO_CONFIG - boolish values (EnvVars::var handles PRE_COMMIT fallback)
-        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_ALLOW_NO_CONFIG) {
-            dict.insert("allow-no-config".into(), Value::from(b));
-        }
-
-        // PREK_NO_CONCURRENCY - boolish values (EnvVars::var handles PRE_COMMIT fallback)
-        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_NO_CONCURRENCY) {
-            dict.insert("no-concurrency".into(), Value::from(b));
-        }
-
-        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_NO_FAST_PATH) {
-            dict.insert("no-fast-path".into(), Value::from(b));
-        }
-
-        if let Ok(val) = EnvVars::var(EnvVars::PREK_UV_SOURCE) {
-            dict.insert("uv-source".into(), Value::from(val));
-        }
-
-        if let Some(b) = EnvVars::var_as_bool(EnvVars::PREK_NATIVE_TLS) {
-            dict.insert("native-tls".into(), Value::from(b));
-        }
-
-        if let Ok(val) = EnvVars::var(EnvVars::PREK_CONTAINER_RUNTIME) {
-            dict.insert("container-runtime".into(), Value::from(val));
-        }
-
-        let mut map = Map::new();
-        map.insert(Profile::Default, dict);
-        Ok(map)
+    #[must_use]
+    pub fn color(mut self, color: Option<ColorChoice>) -> Self {
+        self.color = color;
+        self
     }
 }
 
 impl Settings {
-    /// Initialize settings from the given working directory.
-    ///
-    /// This should be called early in `main()` before any settings are accessed.
-    /// If not called, settings will use the current directory when first accessed.
-    pub fn init(working_dir: &Path) -> Result<(), figment::Error> {
-        let settings = Self::discover(working_dir)?;
-        *SETTINGS.write().expect("settings lock poisoned") = settings;
-        *INITIALIZED.write().expect("initialized lock poisoned") = true;
-        Ok(())
-    }
-
     /// Initialize settings with CLI overrides.
     ///
-    /// CLI flags take highest precedence over all other sources.
-    pub fn init_with_cli(
-        working_dir: &Path,
-        cli_overrides: CliOverrides,
-    ) -> Result<(), figment::Error> {
-        let figment = Self::build_figment(working_dir).merge(Serialized::defaults(cli_overrides));
-        let settings: Settings = figment.extract()?;
+    /// This should be called early in `main()` before any settings are accessed.
+    pub fn init_with_cli(working_dir: &Path, cli: CliOverrides) {
+        let settings = Self::load(working_dir, cli);
         *SETTINGS.write().expect("settings lock poisoned") = settings;
         *INITIALIZED.write().expect("initialized lock poisoned") = true;
-        Ok(())
     }
 
     /// Get the global settings instance.
@@ -263,45 +188,54 @@ impl Settings {
     /// If settings haven't been initialized, this will initialize them
     /// using the current directory.
     pub fn get() -> Settings {
-        // Check if we need to initialize
         {
-            let init_guard = INITIALIZED.read().expect("initialized lock poisoned");
-            if !*init_guard {
-                drop(init_guard);
-                // Try to initialize with current directory
+            let initialized = *INITIALIZED.read().expect("initialized lock poisoned");
+            if !initialized {
                 let cwd = std::env::current_dir().unwrap_or_default();
-                let _ = Self::init(&cwd);
+                Self::init_with_cli(&cwd, CliOverrides::default());
             }
         }
         SETTINGS.read().expect("settings lock poisoned").clone()
     }
 
-    /// Build the figment for the given working directory.
-    fn build_figment(working_dir: &Path) -> Figment {
-        let mut figment = Figment::new()
-            // Lowest precedence: built-in defaults
-            .merge(Serialized::defaults(Settings::default()))
-            // Next: environment variables (custom provider for special handling)
-            .merge(PrekEnvProvider);
+    /// Load and merge settings from all sources.
+    fn load(start_dir: &Path, cli: CliOverrides) -> Self {
+        // Start with pyproject.toml settings (or defaults)
+        let pyproject = Self::load_pyproject(start_dir).unwrap_or_default();
 
-        // Walk up to find pyproject.toml
-        let mut current = Some(working_dir);
-        while let Some(dir) = current {
-            let pyproject_path = dir.join("pyproject.toml");
-            if pyproject_path.exists() {
-                // Higher precedence: pyproject.toml [tool.prek]
-                figment = figment.merge(PyProjectProvider::new(pyproject_path));
-                break;
-            }
-            current = dir.parent();
+        // Layer env vars on top, then CLI
+        Settings {
+            skip: env_list("PREK_SKIP")
+                .or_else(|| env_list("SKIP"))
+                .unwrap_or(pyproject.skip),
+            home: env_path("PREK_HOME").or(pyproject.home),
+            color: cli
+                .color
+                .or_else(|| env_parse::<ColorChoice>("PREK_COLOR"))
+                .or(pyproject.color),
+            allow_no_config: env_bool("PREK_ALLOW_NO_CONFIG").unwrap_or(pyproject.allow_no_config),
+            no_concurrency: env_bool("PREK_NO_CONCURRENCY").unwrap_or(pyproject.no_concurrency),
+            no_fast_path: env_bool("PREK_NO_FAST_PATH").unwrap_or(pyproject.no_fast_path),
+            uv_source: env_string("PREK_UV_SOURCE").or(pyproject.uv_source),
+            native_tls: env_bool("PREK_NATIVE_TLS").unwrap_or(pyproject.native_tls),
+            container_runtime: env_parse("PREK_CONTAINER_RUNTIME").or(pyproject.container_runtime),
         }
-
-        figment
     }
 
-    /// Discover and resolve settings from the given directory.
-    fn discover(start_dir: &Path) -> Result<Self, figment::Error> {
-        Self::build_figment(start_dir).extract()
+    /// Walk up the directory tree to find and parse pyproject.toml
+    fn load_pyproject(start_dir: &Path) -> Option<PyProjectSettings> {
+        let mut dir = Some(start_dir);
+        while let Some(d) = dir {
+            if let Ok(content) = std::fs::read_to_string(d.join("pyproject.toml")) {
+                if let Ok(parsed) = toml::from_str::<PyProjectToml>(&content) {
+                    if let Some(settings) = parsed.tool.and_then(|t| t.prek) {
+                        return Some(settings);
+                    }
+                }
+            }
+            dir = d.parent();
+        }
+        None
     }
 
     /// Check if a hook should be skipped.
@@ -320,39 +254,30 @@ impl Settings {
     }
 }
 
-/// CLI overrides that take highest precedence.
-///
-/// This struct contains only the fields that can be set via CLI flags.
-/// Fields are all optional - `None` means "use value from other sources".
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct CliOverrides {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<ColorChoice>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub no_concurrency: Option<bool>,
-    // Add other CLI-settable options here as needed
+// Simple env var helpers
+fn env_string(key: &str) -> Option<String> {
+    EnvVars::var(key).ok()
 }
 
-impl CliOverrides {
-    pub fn new() -> Self {
-        Self::default()
-    }
+fn env_path(key: &str) -> Option<PathBuf> {
+    env_string(key).map(PathBuf::from)
+}
 
-    #[must_use]
-    pub fn color(mut self, color: Option<ColorChoice>) -> Self {
-        self.color = color;
-        self
-    }
+fn env_bool(key: &str) -> Option<bool> {
+    EnvVars::var_as_bool(key)
+}
 
-    #[must_use]
-    pub fn no_concurrency(mut self, value: bool) -> Self {
-        if value {
-            self.no_concurrency = Some(true);
-        }
-        self
-    }
+fn env_parse<T: std::str::FromStr>(key: &str) -> Option<T> {
+    env_string(key).and_then(|s| s.parse().ok())
+}
+
+fn env_list(key: &str) -> Option<Vec<String>> {
+    env_string(key).map(|s| {
+        s.split(',')
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty())
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -366,8 +291,6 @@ mod tests {
         let settings = Settings::default();
         assert!(settings.skip.is_empty());
         assert!(settings.home.is_none());
-        assert!(settings.color.is_none());
-        assert!(!settings.allow_no_config);
         assert!(!settings.no_concurrency);
     }
 
@@ -388,103 +311,52 @@ color = "always"
         )
         .unwrap();
 
-        let settings = Settings::discover(dir.path()).unwrap();
-
+        let settings = Settings::load(dir.path(), CliOverrides::default());
         assert_eq!(settings.skip, vec!["black", "ruff"]);
         assert!(settings.no_concurrency);
         assert_eq!(settings.color, Some(ColorChoice::Always));
     }
 
     #[test]
-    fn test_env_var_loading() {
-        figment::Jail::expect_with(|jail| {
-            jail.set_env("PREK_SKIP", "hook1,hook2");
-            jail.set_env("PREK_NO_CONCURRENCY", "1");
-            jail.set_env("PREK_COLOR", "never");
-
-            let settings = Settings::discover(jail.directory())?;
-
-            assert_eq!(settings.skip, vec!["hook1", "hook2"]);
-            assert!(settings.no_concurrency);
-            assert_eq!(settings.color, Some(ColorChoice::Never));
-
-            Ok(())
-        });
-    }
-
-    #[test]
-    fn test_pyproject_overrides_env() {
-        figment::Jail::expect_with(|jail| {
-            // Set env var
-            jail.set_env("PREK_COLOR", "never");
-
-            // Create pyproject.toml with different value
-            jail.create_file(
-                "pyproject.toml",
-                r#"
-[tool.prek]
-color = "always"
-"#,
-            )?;
-
-            let settings = Settings::discover(jail.directory())?;
-
-            // pyproject.toml should win
-            assert_eq!(settings.color, Some(ColorChoice::Always));
-
-            Ok(())
-        });
-    }
-
-    #[test]
-    fn test_cli_overrides_all() {
-        figment::Jail::expect_with(|jail| {
-            jail.set_env("PREK_COLOR", "never");
-            jail.create_file(
-                "pyproject.toml",
-                r#"
-[tool.prek]
-color = "auto"
-"#,
-            )?;
-
-            let figment = Settings::build_figment(jail.directory()).merge(Serialized::defaults(
-                CliOverrides {
-                    color: Some(ColorChoice::Always),
-                    ..Default::default()
-                },
-            ));
-
-            let settings: Settings = figment.extract()?;
-
-            // CLI should win
-            assert_eq!(settings.color, Some(ColorChoice::Always));
-
-            Ok(())
-        });
-    }
-
-    #[test]
     fn test_walks_up_directory_tree() {
-        figment::Jail::expect_with(|jail| {
-            // Create pyproject.toml in parent
-            jail.create_file(
-                "pyproject.toml",
-                r#"
+        let dir = TempDir::new().unwrap();
+        let pyproject = dir.path().join("pyproject.toml");
+
+        let mut file = std::fs::File::create(&pyproject).unwrap();
+        write!(
+            file,
+            r#"
 [tool.prek]
 skip = ["parent-hook"]
-"#,
-            )?;
+"#
+        )
+        .unwrap();
 
-            // Create subdirectory
-            std::fs::create_dir_all(jail.directory().join("subdir/nested"))
-                .map_err(|e| e.to_string())?; // Convert io::Error to String, which impls Into<figment::Error>
+        std::fs::create_dir_all(dir.path().join("subdir/nested")).unwrap();
 
-            let settings = Settings::discover(&jail.directory().join("subdir/nested"))?;
+        let settings = Settings::load(&dir.path().join("subdir/nested"), CliOverrides::default());
+        assert_eq!(settings.skip, vec!["parent-hook"]);
+    }
 
-            assert_eq!(settings.skip, vec!["parent-hook"]);
+    #[test]
+    fn test_cli_overrides_pyproject() {
+        let dir = TempDir::new().unwrap();
+        let pyproject = dir.path().join("pyproject.toml");
 
-            Ok(())
-        });
+        let mut file = std::fs::File::create(&pyproject).unwrap();
+        write!(
+            file,
+            r#"
+[tool.prek]
+color = "auto"
+"#
+        )
+        .unwrap();
+
+        let settings = Settings::load(
+            dir.path(),
+            CliOverrides::new().color(Some(ColorChoice::Always)),
+        );
+        assert_eq!(settings.color, Some(ColorChoice::Always));
     }
 }
