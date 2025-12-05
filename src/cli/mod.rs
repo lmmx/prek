@@ -445,8 +445,13 @@ pub(crate) struct RunArgs {
     pub(crate) last_commit: bool,
 
     /// The stage during which the hook is fired.
-    #[arg(long, default_value_t = Stage::PreCommit, value_enum)]
-    pub(crate) hook_stage: Stage,
+    ///
+    /// When specified, only hooks configured for that stage (for example `manual`,
+    /// `pre-commit`, or `pre-commit`) will run.
+    /// Defaults to `pre-commit` if not specified.
+    /// For hooks specified directly in the command line, fallback to `manual` stage if no hooks found for `pre-commit` stage.
+    #[arg(long, value_enum)]
+    pub(crate) hook_stage: Option<Stage>,
 
     /// When hooks fail, run `git diff` directly afterward.
     #[arg(long)]

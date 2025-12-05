@@ -36,7 +36,7 @@ pub(crate) async fn run(
     config: Option<PathBuf>,
     includes: Vec<String>,
     skips: Vec<String>,
-    hook_stage: Stage,
+    hook_stage: Option<Stage>,
     from_ref: Option<String>,
     to_ref: Option<String>,
     all_files: bool,
@@ -59,7 +59,7 @@ pub(crate) async fn run(
     };
 
     // Prevent recursive post-checkout hooks.
-    if hook_stage == Stage::PostCheckout
+    if hook_stage == Some(Stage::PostCheckout)
         && EnvVars::is_set(EnvVars::PREK_INTERNAL__SKIP_POST_CHECKOUT)
     {
         return Ok(ExitStatus::Success);
@@ -91,7 +91,7 @@ pub(crate) async fn run(
         .init_hooks(store, Some(&reporter))
         .await
         .context("Failed to init hooks")?;
-    let filtered_hooks: Vec<_> = hooks
+    let selected_hooks: Vec<_> = hooks
         .into_iter()
         .filter(|h| selectors.matches_hook(h))
         .map(Arc::new)
@@ -99,7 +99,7 @@ pub(crate) async fn run(
 
     selectors.report_unused();
 
-    if filtered_hooks.is_empty() {
+    if selected_hooks.is_empty() {
         writeln!(
             printer.stderr(),
             "{}: No hooks found after filtering with the given selectors",
@@ -117,10 +117,32 @@ pub(crate) async fn run(
         return Ok(ExitStatus::Failure);
     }
 
-    let filtered_hooks = filtered_hooks
-        .into_iter()
-        .filter(|h| h.stages.contains(hook_stage))
-        .collect::<Vec<_>>();
+    let (filtered_hooks, hook_stage) = if let Some(hook_stage) = hook_stage {
+        let hooks = selected_hooks
+            .iter()
+            .filter(|h| h.stages.contains(hook_stage))
+            .cloned()
+            .collect::<Vec<_>>();
+        (hooks, hook_stage)
+    } else {
+        // Try filtering by `pre-commit` stage first.
+        let mut hook_stage = Stage::PreCommit;
+        let mut hooks = selected_hooks
+            .iter()
+            .filter(|h| h.stages.contains(Stage::PreCommit))
+            .cloned()
+            .collect::<Vec<_>>();
+        if hooks.is_empty() && selectors.includes_only_hook_targets() {
+            // If no hooks found for `pre-commit` stage, try fallback to `manual` stage for hooks specified directly.
+            hook_stage = Stage::Manual;
+            hooks = selected_hooks
+                .iter()
+                .filter(|h| h.stages.contains(Stage::Manual))
+                .cloned()
+                .collect();
+        }
+        (hooks, hook_stage)
+    };
 
     if filtered_hooks.is_empty() {
         writeln!(
