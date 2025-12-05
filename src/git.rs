@@ -381,6 +381,7 @@ async fn shallow_clone(rev: &str, path: &Path) -> Result<(), Error> {
         .arg("checkout")
         .arg("FETCH_HEAD")
         .remove_git_env()
+        .env(EnvVars::PREK_INTERNAL__SKIP_POST_CHECKOUT, "1")
         .check(true)
         .output()
         .await?;
@@ -419,6 +420,7 @@ async fn full_clone(rev: &str, path: &Path) -> Result<(), Error> {
         .current_dir(path)
         .arg("checkout")
         .arg(rev)
+        .env(EnvVars::PREK_INTERNAL__SKIP_POST_CHECKOUT, "1")
         .remove_git_env()
         .check(true)
         .output()
